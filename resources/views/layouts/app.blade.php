@@ -97,8 +97,11 @@
 
             <nav class="col-span-3 mt-1 flex w-full justify-evenly border-t border-white/12 pt-2">
                 <x-nav-link :href="route('dashboard')" icon="home" :active="request()->routeIs('dashboard')">Dashboard</x-nav-link>
-                <x-nav-link :href="route('inventory.index')" icon="clipboard-document-check" :active="request()->routeIs('inventory.index')">Inventory</x-nav-link>
-                <x-nav-link :href="route('stock.index')" icon="archive-box" :active="request()->routeIs('stock.*')">Stock</x-nav-link>
+                {{-- One page, two tabs (x-inventory-tabs); an item's own page counts as part of it. --}}
+                <x-nav-link :href="route('inventory.index')" icon="clipboard-document-check"
+                            :active="request()->routeIs('inventory.index') || request()->routeIs('inventory.show') || request()->routeIs('stock.*')">
+                    Inventory and Stock
+                </x-nav-link>
                 <x-nav-link :href="route('scanner.index')" icon="viewfinder-circle" :active="request()->routeIs('scanner.*')">Scanner</x-nav-link>
                 @if (auth()->user()->isAdmin())
                     <x-nav-link :href="route('inventory.pending')" icon="clock" :active="request()->routeIs('inventory.pending')">

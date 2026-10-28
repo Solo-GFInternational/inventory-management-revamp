@@ -1,5 +1,6 @@
 @extends('layouts.app')
-@section('title', 'Stock')
+@section('alerts', 'tallstackui') {{-- TallStackUI dialogs and toasts instead of SweetAlert (trial) --}}
+@section('title', 'Inventory and Stock')
 
 @section('content')
     @php
@@ -7,9 +8,9 @@
         $reopen = old('_modal');
     @endphp
 
-    <x-page-header title="Stock" description="In stock is what's on the shelf now; given out is what has been issued as new. Total is both together.">
+    <x-inventory-tabs active="stock" description="In stock is what's on the shelf now; given out is what has been issued as new. Total is both together.">
         <x-button icon="plus" data-modal-open="add-stock">Add stock</x-button>
-    </x-page-header>
+    </x-inventory-tabs>
 
     {{-- Stats overview: totals across every active item. --}}
     <div class="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-3">

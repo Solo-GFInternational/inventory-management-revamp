@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('alerts', 'tallstackui') {{-- TallStackUI dialogs and toasts instead of SweetAlert (trial) --}}
-@section('title', 'Inventory')
+@section('title', 'Inventory and Stock')
 
 @section('content')
     @php
@@ -9,8 +9,8 @@
         $hasFilters = $filters['taken_by'] !== '' || $filters['site_id'] !== '' || $filters['status'] !== '';
     @endphp
 
-    <x-page-header title="Inventory"
-                   description="Equipment issued to staff. New items come out of stock once the record is approved.">
+    <x-inventory-tabs active="inventory"
+                      description="Equipment issued to staff. New items come out of stock once the record is approved.">
         {{-- Yearly report: a plain GET form, so it works without JavaScript. --}}
         <form method="GET" action="{{ route('inventory.download.pdf') }}" class="flex items-center gap-2">
             <select name="year" aria-label="Report year" class="gf-input select-arrow w-28">
@@ -21,7 +21,7 @@
             <x-button type="submit" color="gray" icon="arrow-down-tray" class="whitespace-nowrap">Download PDF</x-button>
         </form>
         <x-button icon="plus" data-modal-open="create-inventory">Add inventory</x-button>
-    </x-page-header>
+    </x-inventory-tabs>
 
     <x-card>
         {{-- Table toolbar: filters above the table, at the right. --}}

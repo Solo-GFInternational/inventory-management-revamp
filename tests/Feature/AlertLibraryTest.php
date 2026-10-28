@@ -7,7 +7,7 @@ use Tests\Concerns\CreatesInventory;
 use Tests\TestCase;
 
 /**
- * The Inventory pages trial TallStackUI dialogs (and so load Livewire, which
+ * The Inventory and Stock pages trial TallStackUI dialogs (and so load Livewire, which
  * brings Alpine; its script tag isn't rendered under test); every other
  * page keeps SweetAlert.
  */
@@ -20,7 +20,7 @@ class AlertLibraryTest extends TestCase
         $admin = $this->makeUser('admin');
         $inventory = $this->makeInventory($admin);
 
-        foreach ([route('inventory.index'), route('inventory.show', $inventory), route('inventory.pending')] as $url) {
+        foreach ([route('inventory.index'), route('stock.index'), route('inventory.show', $inventory), route('inventory.pending')] as $url) {
             $this->actingAs($admin)->get($url)
                 ->assertOk()
                 ->assertSee('/tallstackui/script/', false)
@@ -34,7 +34,7 @@ class AlertLibraryTest extends TestCase
     {
         $admin = $this->makeUser('admin');
 
-        foreach ([route('dashboard'), route('stock.index'), route('scanner.index'), route('users.index')] as $url) {
+        foreach ([route('dashboard'), route('scanner.index'), route('users.index')] as $url) {
             $this->actingAs($admin)->get($url)
                 ->assertOk()
                 ->assertSee('sweetalert2', false)
