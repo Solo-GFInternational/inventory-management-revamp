@@ -14,9 +14,9 @@ return new class extends Migration
     public function up()
     {
         Schema::table('assets', function (Blueprint $table) {
-    $table->text('disposal_reason')->nullable();
-    $table->timestamp('disposed_at')->nullable();
-});
+            $table->text('disposal_reason')->nullable();
+            $table->timestamp('disposed_at')->nullable();
+        });
     }
 
     /**

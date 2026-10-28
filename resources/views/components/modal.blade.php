@@ -1,77 +1,45 @@
-@props([
-    'name',
-    'show' => false,
-    'maxWidth' => '2xl'
-])
+@props(['id', 'heading', 'description' => null, 'icon' => null, 'width' => 'max-w-2xl', 'open' => false])
 
-@php
-$maxWidth = [
-    'sm' => 'sm:max-w-sm',
-    'md' => 'sm:max-w-md',
-    'lg' => 'sm:max-w-lg',
-    'xl' => 'sm:max-w-xl',
-    '2xl' => 'sm:max-w-2xl',
-][$maxWidth];
-@endphp
-
-<div
-    x-data="{
-        show: @js($show),
-        focusables() {
-            // All focusable element types...
-            let selector = 'a, button, input:not([type=\'hidden\']), textarea, select, details, [tabindex]:not([tabindex=\'-1\'])'
-            return [...$el.querySelectorAll(selector)]
-                // All non-disabled elements...
-                .filter(el => ! el.hasAttribute('disabled'))
-        },
-        firstFocusable() { return this.focusables()[0] },
-        lastFocusable() { return this.focusables().slice(-1)[0] },
-        nextFocusable() { return this.focusables()[this.nextFocusableIndex()] || this.firstFocusable() },
-        prevFocusable() { return this.focusables()[this.prevFocusableIndex()] || this.lastFocusable() },
-        nextFocusableIndex() { return (this.focusables().indexOf(document.activeElement) + 1) % (this.focusables().length + 1) },
-        prevFocusableIndex() { return Math.max(0, this.focusables().indexOf(document.activeElement)) -1 },
-    }"
-    x-init="$watch('show', value => {
-        if (value) {
-            document.body.classList.add('overflow-y-hidden');
-            {{ $attributes->has('focusable') ? 'setTimeout(() => firstFocusable().focus(), 100)' : '' }}
-        } else {
-            document.body.classList.remove('overflow-y-hidden');
-        }
-    })"
-    x-on:open-modal.window="$event.detail == '{{ $name }}' ? show = true : null"
-    x-on:close.stop="show = false"
-    x-on:keydown.escape.window="show = false"
-    x-on:keydown.tab.prevent="$event.shiftKey || nextFocusable().focus()"
-    x-on:keydown.shift.tab.prevent="prevFocusable().focus()"
-    x-show="show"
-    class="fixed inset-0 overflow-y-auto px-4 py-6 sm:px-0 z-50"
-    style="display: {{ $show ? 'block' : 'none' }};"
->
-    <div
-        x-show="show"
-        class="fixed inset-0 transform transition-all"
-        x-on:click="show = false"
-        x-transition:enter="ease-out duration-300"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="ease-in duration-200"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-    >
-        <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
+{{--
+    Filament's action modal (the create/edit dialogs on site-visit's Staff
+    Accounts and Sites), built on a native <dialog> so no JS framework is
+    needed — resources/js/app.js wires it up:
+      - any element with data-modal-open="{id}" opens it (and an <a> with
+        that attribute keeps its href as the no-JS fallback);
+      - anything inside with data-modal-close closes it, as do Esc and a
+        click on the backdrop;
+      - :open="true" opens it as soon as the page loads — pass it when the
+        form inside failed validation, so the errors show where they were made.
+    Put the form fields in the slot and the buttons in the `footer` slot; to
+    submit a form from the footer, give the button form="{form id}".
+--}}
+<dialog id="{{ $id }}" @if ($open) data-open-on-load @endif aria-labelledby="{{ $id }}-heading"
+        {{ $attributes->class(["m-auto w-[calc(100%-2rem)] {$width} rounded-xl bg-white p-0 text-gray-950 shadow-xl ring-1 ring-gray-950/5 backdrop:bg-gray-950/50"]) }}>
+    <div class="flex items-start gap-4 px-6 pt-6">
+        @if ($icon)
+            <div class="rounded-full bg-primary-100 p-2 text-primary-600">
+                <x-icon :name="$icon" class="size-6" />
+            </div>
+        @endif
+        <div class="min-w-0 flex-1">
+            <h2 id="{{ $id }}-heading" class="text-base leading-6 font-semibold text-gray-950">{{ $heading }}</h2>
+            @if ($description)
+                <p class="mt-1 text-sm text-gray-500">{{ $description }}</p>
+            @endif
+        </div>
+        <button type="button" data-modal-close title="Close" aria-label="Close"
+                class="-m-1.5 rounded-lg p-1.5 text-gray-400 hover:bg-gray-50 hover:text-gray-500">
+            <x-icon name="x-mark" class="size-6" />
+        </button>
     </div>
 
-    <div
-        x-show="show"
-        class="mb-6 bg-white rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full {{ $maxWidth }} sm:mx-auto"
-        x-transition:enter="ease-out duration-300"
-        x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-        x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
-        x-transition:leave="ease-in duration-200"
-        x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
-        x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
-    >
+    <div class="px-6 py-6">
         {{ $slot }}
     </div>
-</div>
+
+    @isset($footer)
+        <div class="flex flex-wrap items-center gap-3 px-6 pb-6">
+            {{ $footer }}
+        </div>
+    @endisset
+</dialog>

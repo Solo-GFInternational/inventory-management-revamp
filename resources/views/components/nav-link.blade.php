@@ -1,11 +1,18 @@
-@props(['active'])
+@props(['active' => false, 'icon' => null])
 
-@php
-$classes = ($active ?? false)
-            ? 'inline-flex items-center px-1 pt-1 border-b-2 border-indigo-400 text-sm font-medium leading-5 text-gray-900 focus:outline-none focus:border-indigo-700 transition duration-150 ease-in-out'
-            : 'inline-flex items-center px-1 pt-1 border-b-2 border-transparent text-sm font-medium leading-5 text-gray-500 hover:text-gray-700 hover:border-gray-300 focus:outline-none focus:text-gray-700 focus:border-gray-300 transition duration-150 ease-in-out';
-@endphp
-
-<a {{ $attributes->merge(['class' => $classes]) }}>
-    {{ $slot }}
+{{--
+    A top bar navigation item as on the site-visit project: icon and label,
+    roomy padding, white on navy; the current page gets a light tint. Labels
+    drop away on narrow screens, leaving the icons. An optional `badge` slot
+    sits after the label (the Unmatched count).
+--}}
+<a @if ($active) aria-current="page" @endif {{ $attributes->class([
+    'flex items-center gap-x-2 rounded-lg px-3 py-3 text-white transition outline-none sm:px-5 hover:bg-white/8 focus-visible:bg-white/8',
+    'bg-white/12' => $active,
+]) }}>
+    @if ($icon)
+        <x-icon :name="$icon" @class(['size-6', 'text-white' => $active, 'text-white/60' => ! $active]) />
+    @endif
+    <span class="sr-only text-base font-medium sm:not-sr-only">{{ $slot }}</span>
+    {{ $badge ?? '' }}
 </a>

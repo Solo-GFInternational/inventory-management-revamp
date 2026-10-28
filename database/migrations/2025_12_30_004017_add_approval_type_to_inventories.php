@@ -12,11 +12,11 @@ return new class extends Migration
      * @return void
      */
     public function up()
-{
-    Schema::table('inventories', function (Blueprint $table) {
-        $table->string('approval_type')->nullable();
-    });
-}
+    {
+        Schema::table('inventories', function (Blueprint $table) {
+            $table->string('approval_type')->nullable();
+        });
+    }
 
     /**
      * Reverse the migrations.

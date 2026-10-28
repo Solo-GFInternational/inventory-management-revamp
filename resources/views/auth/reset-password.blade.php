@@ -1,39 +1,31 @@
-<x-guest-layout>
-    <form method="POST" action="{{ route('password.store') }}">
-        @csrf
+@extends('layouts.auth')
+@section('title', 'Reset password')
+@section('form-action', route('password.store'))
+@section('heading', 'Choose a new password')
+@section('subheading', 'At least 8 characters.')
 
-        <!-- Password Reset Token -->
-        <input type="hidden" name="token" value="{{ $request->route('token') }}">
+@section('content')
+    <input type="hidden" name="token" value="{{ $request->route('token') }}">
 
-        <!-- Email Address -->
-        <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input id="email" class="block mt-1 w-full" type="email" name="email" :value="old('email', $request->email)" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
-        </div>
+    <div>
+        <label for="email" class="gf-label">Email</label>
+        <input id="email" name="email" type="email" value="{{ old('email', $request->email) }}" required autofocus autocomplete="username"
+               class="gf-input">
+    </div>
 
-        <!-- Password -->
-        <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-            <x-text-input id="password" class="block mt-1 w-full" type="password" name="password" required autocomplete="new-password" />
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
-        </div>
+    <div>
+        <label for="password" class="gf-label">New password</label>
+        @include('auth.partials.password-input', ['id' => 'password', 'autocomplete' => 'new-password', 'minlength' => 8])
+    </div>
 
-        <!-- Confirm Password -->
-        <div class="mt-4">
-            <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
+    <div>
+        <label for="password_confirmation" class="gf-label">Confirm new password</label>
+        @include('auth.partials.password-input', ['id' => 'password_confirmation', 'autocomplete' => 'new-password', 'minlength' => 8])
+    </div>
 
-            <x-text-input id="password_confirmation" class="block mt-1 w-full"
-                                type="password"
-                                name="password_confirmation" required autocomplete="new-password" />
+    <x-button type="submit" size="lg" class="w-full">Reset password</x-button>
 
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
-        </div>
-
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Reset Password') }}
-            </x-primary-button>
-        </div>
-    </form>
-</x-guest-layout>
+    <p class="text-center text-sm text-gray-500">
+        <a href="{{ route('login') }}" class="font-medium text-primary-600 hover:underline">Back to sign in</a>
+    </p>
+@endsection

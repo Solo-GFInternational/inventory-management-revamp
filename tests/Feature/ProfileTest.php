@@ -61,39 +61,30 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
 
-    public function test_user_can_delete_their_account(): void
+    public function test_profile_page_has_no_delete_account_section(): void
     {
         $user = User::factory()->create();
 
-        $response = $this
-            ->actingAs($user)
-            ->delete('/profile', [
-                'password' => 'password',
-            ]);
-
-        $response
-            ->assertSessionHasNoErrors()
-            ->assertRedirect('/');
-
-        $this->assertGuest();
-        $this->assertNull($user->fresh());
+        $this->actingAs($user)
+            ->get('/profile')
+            ->assertOk()
+            ->assertSee('Profile information')
+            ->assertSee('Update password')
+            ->assertDontSee('Delete account', false);
     }
 
-    public function test_correct_password_must_be_provided_to_delete_account(): void
+    public function test_users_cannot_delete_or_deactivate_their_own_account(): void
     {
         $user = User::factory()->create();
 
-        $response = $this
-            ->actingAs($user)
-            ->from('/profile')
+        $this->actingAs($user)
             ->delete('/profile', [
-                'password' => 'wrong-password',
-            ]);
+                'password' => 'password',
+            ])
+            ->assertForbidden();
 
-        $response
-            ->assertSessionHasErrorsIn('userDeletion', 'password')
-            ->assertRedirect('/profile');
-
+        $this->assertAuthenticated();
         $this->assertNotNull($user->fresh());
+        $this->assertTrue($user->fresh()->active_yn);
     }
 }
