@@ -26,7 +26,7 @@
         <input id="{{ $prefix }}email" name="email" type="email" value="{{ $value('email', $targetUser?->email) }}" required maxlength="255"
                autocomplete="off" class="gf-input">
         @if ($targetUser === null)
-            <p class="gf-hint">If this email belongs to a deactivated account, that account is reactivated with these details.</p>
+            <p class="gf-hint">If this email belongs to a deactivated account, that account is reactivated with these details and a new temporary password.</p>
         @endif
     </div>
 
@@ -44,33 +44,37 @@
         @endif
     </div>
 
-    <div class="grid gap-6 sm:grid-cols-2">
-        @foreach (['password' => $targetUser ? 'New password' : 'Password', 'password_confirmation' => 'Confirm password'] as $field => $label)
-            <div>
-                <label for="{{ $prefix }}{{ $field }}" class="gf-label">
-                    {{ $label }}
-                    @if ($targetUser)
-                        <span class="font-normal text-gray-400">(optional)</span>
-                    @endif
-                </label>
-                <div class="relative" data-password-field>
-                    <input id="{{ $prefix }}{{ $field }}" name="{{ $field }}" type="password" minlength="8"
-                           @if ($targetUser === null) required @endif
-                           autocomplete="new-password" class="gf-input pe-11">
-                    <button type="button" data-password-toggle aria-label="Show password"
-                            class="absolute inset-y-0 end-0 flex items-center px-3 text-gray-400 hover:text-gray-500">
-                        <x-icon name="eye" data-icon-show />
-                        <x-icon name="eye-slash" data-icon-hide hidden />
-                    </button>
+    @if ($targetUser === null)
+        {{-- No password box: one is generated (App\Support\TemporaryPassword) and only appears in their email. --}}
+        <div class="flex items-start gap-3 rounded-lg bg-primary-50 px-4 py-3 text-sm text-primary-800 ring-1 ring-primary-600/20">
+            <x-icon name="envelope" class="mt-px size-5 shrink-0 text-primary-600" />
+            <p>
+                A temporary password is created for them and emailed to this address with the sign-in link.
+                Nobody else sees it. They can change it under Your profile after signing in.
+            </p>
+        </div>
+    @else
+        <div class="grid gap-6 sm:grid-cols-2">
+            @foreach (['password' => 'New password', 'password_confirmation' => 'Confirm password'] as $field => $label)
+                <div>
+                    <label for="{{ $prefix }}{{ $field }}" class="gf-label">
+                        {{ $label }} <span class="font-normal text-gray-400">(optional)</span>
+                    </label>
+                    <div class="relative" data-password-field>
+                        <input id="{{ $prefix }}{{ $field }}" name="{{ $field }}" type="password" minlength="8"
+                               autocomplete="new-password" class="gf-input pe-11">
+                        <button type="button" data-password-toggle aria-label="Show password"
+                                class="absolute inset-y-0 end-0 flex items-center px-3 text-gray-400 hover:text-gray-500">
+                            <x-icon name="eye" data-icon-show />
+                            <x-icon name="eye-slash" data-icon-hide hidden />
+                        </button>
+                    </div>
                 </div>
-            </div>
-        @endforeach
-    </div>
-    <p class="gf-hint -mt-4">
-        @if ($targetUser)
-            At least 8 characters. Leave both blank to keep the current password.
-        @else
-            At least 8 characters. No email is sent, so give the person their password yourself.
-        @endif
-    </p>
+            @endforeach
+        </div>
+        <p class="gf-hint -mt-4">
+            At least 8 characters. Leave both blank to keep the current password. Changing it here doesn't email the
+            user &mdash; tell them the new password yourself.
+        </p>
+    @endif
 </div>

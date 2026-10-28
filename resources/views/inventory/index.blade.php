@@ -92,7 +92,8 @@
                                     @if ($isAdmin && $inventory->isPending())
                                         <form method="POST" action="{{ route('inventory.approve', $inventory) }}"
                                               data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
-                                              data-confirm-title="Approve this record?" data-confirm-button="Yes, approve">
+                                              data-confirm-title="Approve this record?" data-confirm-button="Yes, approve"
+                                              data-processing="Approving…" data-processing-text="Updating the record and the stock count.">
                                             @csrf
                                             @method('PATCH')
                                             <x-icon-button type="submit" icon="check" label="Approve" />
@@ -101,7 +102,8 @@
                                     @if ($isAdmin)
                                         <form method="POST" action="{{ route('inventory.destroy', $inventory) }}"
                                               data-confirm="{{ $inventory->status === 'approved' && $inventory->condition === 'new' ? 'The record is hidden and its '.$inventory->qty.' × '.$inventory->item.' go back into stock.' : 'The record is hidden from the inventory list.' }}"
-                                              data-confirm-title="Deactivate this record?" data-confirm-button="Yes, deactivate">
+                                              data-confirm-title="Deactivate this record?" data-confirm-button="Yes, deactivate"
+                                              data-processing="Deactivating…">
                                             @csrf
                                             @method('DELETE')
                                             <x-icon-button type="submit" icon="trash" label="Deactivate" color="danger" />
@@ -142,7 +144,8 @@
         @if ($reopen === 'create-inventory')
             <x-form-errors />
         @endif
-        <form id="create-inventory-form" method="POST" action="{{ route('inventory.store') }}">
+        <form id="create-inventory-form" method="POST" action="{{ route('inventory.store') }}"
+              data-processing="{{ $isAdmin ? 'Saving inventory…' : 'Submitting for approval…' }}">
             @csrf
             <input type="hidden" name="_modal" value="create-inventory">
             @include('inventory._form', ['inventory' => null, 'prefix' => 'create-inventory-', 'useOld' => $reopen === 'create-inventory'])
@@ -162,7 +165,8 @@
             @if ($reopen === $modalId)
                 <x-form-errors />
             @endif
-            <form id="{{ $modalId }}-form" method="POST" action="{{ route('inventory.update', $inventory) }}">
+            <form id="{{ $modalId }}-form" method="POST" action="{{ route('inventory.update', $inventory) }}"
+                  data-processing="{{ $isAdmin ? 'Saving changes…' : 'Submitting for approval…' }}">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">

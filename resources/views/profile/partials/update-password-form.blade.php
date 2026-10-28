@@ -2,7 +2,7 @@
     Errors go to the updatePassword bag (Auth\PasswordController), which the
     layout's SweetAlert doesn't read, so they're listed in the card.
 --}}
-<form method="POST" action="{{ route('password.update') }}">
+<form method="POST" action="{{ route('password.update') }}" data-processing="Updating your password…">
     @csrf
     @method('PUT')
 

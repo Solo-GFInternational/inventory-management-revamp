@@ -1,5 +1,5 @@
 {{-- Validation errors in the default bag are shown by the layout's SweetAlert. --}}
-<form method="POST" action="{{ route('profile.update') }}">
+<form method="POST" action="{{ route('profile.update') }}" data-processing="Saving your profile…">
     @csrf
     @method('PATCH')
 

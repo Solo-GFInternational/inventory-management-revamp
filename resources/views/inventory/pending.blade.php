@@ -73,7 +73,8 @@
                                 <div class="flex items-center justify-end gap-2">
                                     <form method="POST" action="{{ route('inventory.approve', $inventory) }}"
                                           data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
-                                          data-confirm-title="Approve this record?" data-confirm-button="Yes, approve">
+                                          data-confirm-title="Approve this record?" data-confirm-button="Yes, approve"
+                                          data-processing="Approving…" data-processing-text="Updating the record and the stock count.">
                                         @csrf
                                         <x-icon-button type="submit" icon="check" label="Approve" />
                                     </form>

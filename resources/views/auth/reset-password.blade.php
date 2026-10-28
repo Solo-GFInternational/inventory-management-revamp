@@ -1,6 +1,7 @@
 @extends('layouts.auth')
 @section('title', 'Reset password')
 @section('form-action', route('password.store'))
+@section('form-attributes')data-processing="Saving your new password…"@endsection
 @section('heading', 'Choose a new password')
 @section('subheading', 'At least 8 characters.')
 
