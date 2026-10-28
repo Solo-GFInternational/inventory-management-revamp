@@ -1,4 +1,5 @@
 @extends('layouts.app')
+@section('alerts', 'tallstackui') {{-- TallStackUI dialogs and toasts instead of SweetAlert (trial) --}}
 @section('title', 'Inventory '.($inventory->barcode ?? '#'.$inventory->getKey()))
 
 {{--

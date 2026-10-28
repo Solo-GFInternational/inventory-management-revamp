@@ -67,6 +67,10 @@ window.gfSwal = {
             ...(icon === 'success' ? { timer: 6000, timerProgressBar: true } : {}),
         });
     },
+
+    // Pages trialling TallStackUI load resources/js/tallstackui-alerts.js
+    // first; its confirm / alert / processing replace the SweetAlert ones.
+    ...(window.gfAlertProvider ?? {}),
 };
 
 /*
@@ -188,7 +192,7 @@ if (flash.status) {
  * shows it once confirmed, and the browser's own required-field checks have
  * already passed by the time a submit event fires.
  */
-window.gfSwal.processing = (title, text) => {
+window.gfSwal.processing ??= (title, text) => {
     if (! window.Swal) {
         return;
     }

@@ -6,8 +6,23 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Inventory') — {{ config('app.name') }}</title>
     <link rel="icon" href="{{ asset('icons/favicon-32.png') }}" sizes="32x32">
-    {{-- Served from this app (public/vendor/sweetalert2), not a CDN — as on the site-visit and tender projects. --}}
-    <script src="{{ asset('vendor/sweetalert2/sweetalert2.all.min.js') }}"></script>
+    {{--
+        Alerts: SweetAlert everywhere, except pages trialling TallStackUI
+        (@section('alerts', 'tallstackui') — the Inventory pages). Either way
+        app.js shows them through window.gfSwal; resources/js/tallstackui-alerts.js
+        swaps in the TallStackUI version. TallStackUI needs Livewire's script,
+        which is where Alpine comes from; all of it is served from this app.
+    --}}
+    @php
+        $tallStackUi = trim($__env->yieldContent('alerts')) === 'tallstackui';
+    @endphp
+    @if ($tallStackUi)
+        <tallstackui:script />
+        @livewireStyles
+    @else
+        {{-- Served from this app (public/vendor/sweetalert2), not a CDN — as on the site-visit and tender projects. --}}
+        <script src="{{ asset('vendor/sweetalert2/sweetalert2.all.min.js') }}"></script>
+    @endif
     {{-- Flashed status messages and validation errors, shown as SweetAlert dialogs by resources/js/app.js. --}}
     @php
         $gfFlash = array_filter([
@@ -19,7 +34,10 @@
     @endphp
     <script>window.gfFlash = {{ \Illuminate\Support\Js::from((object) $gfFlash) }};</script>
     @fonts
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- The TallStackUI adapter goes first, so app.js finds it when it sets up window.gfSwal. --}}
+    @vite($tallStackUi
+        ? ['resources/css/app.css', 'resources/js/tallstackui-alerts.js', 'resources/js/app.js']
+        : ['resources/css/app.css', 'resources/js/app.js'])
     {{-- Page-only scripts (e.g. the scanner's @vite('resources/js/scanner.js')); they run after app.js. --}}
     @stack('scripts')
 </head>
@@ -104,5 +122,10 @@
         @yield('content')
     </main>
 </div>
+@if ($tallStackUi)
+    <x-ts-dialog />
+    <x-ts-toast />
+    @livewireScripts
+@endif
 </body>
 </html>
