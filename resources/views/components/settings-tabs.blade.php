@@ -10,6 +10,7 @@
     $tabs = [
         'users' => ['Users', 'users', route('users.index')],
         'audit' => ['Audit Trail', 'clipboard-document-list', route('audit.index')],
+        'types' => ['Types', 'tag', route('types.index')],
     ];
 @endphp
 

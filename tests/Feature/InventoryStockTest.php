@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\Inventory;
 use App\Models\Stock;
-use App\Models\User;
+use App\Models\Type;
+use Database\Seeders\TypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\CreatesInventory;
 use Tests\TestCase;
 
 /**
@@ -14,19 +16,12 @@ use Tests\TestCase;
  */
 class InventoryStockTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesInventory, RefreshDatabase;
 
-    private function makeUser(string $role): User
-    {
-        $user = User::factory()->create();
-        $user->forceFill(['role' => $role])->save();
-
-        return $user;
-    }
-
+    /** The create/edit form as posted (names are turned into ids). */
     private function form(array $overrides = []): array
     {
-        return $overrides + [
+        return $this->withIds($overrides + [
             'date' => now()->toDateString(),
             'qty' => 2,
             'item' => 'Monitor',
@@ -35,7 +30,7 @@ class InventoryStockTest extends TestCase
             'taken_by' => 'Jane Staff',
             'department' => 'Finance',
             'site' => 'Dry Goods',
-        ];
+        ]);
     }
 
     private function shelf(string $item = 'Monitor'): int
@@ -218,16 +213,82 @@ class InventoryStockTest extends TestCase
         $this->assertSame(2, $this->shelf());
     }
 
-    public function test_index_lists_stock_items_and_configured_options()
+    public function test_index_lists_stock_items_and_managed_options()
     {
+        $this->seed(TypeSeeder::class);
         $user = $this->makeUser('user');
-        Stock::create(['item' => 'Docking Station', 'qty' => 7]);
+        $dock = Stock::create(['item' => 'Docking Station', 'qty' => 7]);
+        $site = Type::group(Type::SITE)->where('type_name', 'Korociriciri Packhouse')->first();
 
         $this->actingAs($user)->get('/inventory')
             ->assertOk()
             ->assertSee('Docking Station (7 in stock)')
+            ->assertSee('value="'.$dock->id.'"', false)
             ->assertSee('Korociriciri Packhouse')
+            ->assertSee('value="'.$site->id.'"', false)
             ->assertSee('Information Technology')
+            ->assertSee('name="stock_id"', false)
+            ->assertSee('name="department_id"', false)
+            ->assertSee('name="site_id"', false)
             ->assertSee('gf-input select-arrow', false);
+    }
+
+    public function test_deactivated_or_unknown_choices_are_rejected_on_create()
+    {
+        $admin = $this->makeUser('admin');
+        Stock::create(['item' => 'Monitor', 'qty' => 5]);
+        $retired = Stock::create(['item' => 'Old Monitor', 'qty' => 5]);
+        $retired->forceFill(['active_yn' => false])->save();
+        $closed = $this->typeFor(Type::SITE, 'Closed Site');
+        $closed->forceFill(['active_yn' => false])->save();
+        $department = $this->typeFor(Type::DEPARTMENT, 'Finance');
+
+        $this->actingAs($admin)->post('/inventory', $this->form(['stock_id' => $retired->id]))
+            ->assertSessionHasErrors(['stock_id' => 'The chosen item is no longer in the stock list.']);
+        $this->actingAs($admin)->post('/inventory', $this->form(['site_id' => $closed->id]))
+            ->assertSessionHasErrors('site_id');
+        // A department id is not a site.
+        $this->actingAs($admin)->post('/inventory', $this->form(['site_id' => $department->id]))
+            ->assertSessionHasErrors('site_id');
+        $this->actingAs($admin)->post('/inventory', $this->form(['department_id' => 999999]))
+            ->assertSessionHasErrors('department_id');
+
+        $this->assertSame(0, Inventory::count());
+        $this->assertSame(5, $this->shelf());
+    }
+
+    public function test_edit_may_keep_a_deactivated_department_site_or_item()
+    {
+        $admin = $this->makeUser('admin');
+        $inventory = $this->makeInventory($admin, [
+            'item' => 'Old Monitor', 'department' => 'Gone Dept', 'site' => 'Closed Site', 'condition' => 'used',
+        ]);
+        $inventory->stock->forceFill(['active_yn' => false])->save();
+        $inventory->department->forceFill(['active_yn' => false])->save();
+        $inventory->site->forceFill(['active_yn' => false])->save();
+
+        // The edit modal still lists the row's current values.
+        $this->actingAs($admin)->get('/inventory')->assertOk()
+            ->assertSee('Old Monitor (not in stock list)')
+            ->assertSee('Gone Dept')
+            ->assertSee('Closed Site');
+
+        $this->actingAs($admin)->put("/inventory/{$inventory->id}", [
+            'date' => now()->toDateString(),
+            'qty' => 2,
+            'stock_id' => $inventory->stock_id,
+            'condition' => 'used',
+            'taken_by' => 'Someone',
+            'department_id' => $inventory->department_id,
+            'site_id' => $inventory->site_id,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertEquals(2, $inventory->fresh()->qty);
+
+        // But a new row can't pick them.
+        $this->actingAs($admin)->post('/inventory', $this->form([
+            'condition' => 'used',
+            'department_id' => $inventory->department_id,
+        ]))->assertSessionHasErrors('department_id');
     }
 }

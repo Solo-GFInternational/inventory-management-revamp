@@ -40,20 +40,20 @@
                   class="flex flex-col gap-3 border-b border-gray-200 px-6 py-4 sm:flex-row sm:items-end">
                 <div class="min-w-0 flex-1">
                     <label for="site" class="gf-label">Site</label>
-                    <select id="site" name="site" class="gf-input select-arrow">
+                    <select id="site" name="site_id" class="gf-input select-arrow">
                         <option value="">All sites</option>
-                        @foreach ($sites as $option)
-                            <option value="{{ $option }}" @selected($site === $option)>{{ $option }}</option>
+                        @foreach ($sites as $id => $name)
+                            <option value="{{ $id }}" @selected($site === (int) $id)>{{ $name }}</option>
                         @endforeach
                     </select>
                 </div>
 
                 <div class="min-w-0 flex-1">
                     <label for="department" class="gf-label">Department</label>
-                    <select id="department" name="department" class="gf-input select-arrow">
+                    <select id="department" name="department_id" class="gf-input select-arrow">
                         <option value="">All departments</option>
-                        @foreach ($departments as $option)
-                            <option value="{{ $option }}" @selected($department === $option)>{{ $option }}</option>
+                        @foreach ($departments as $id => $name)
+                            <option value="{{ $id }}" @selected($department === (int) $id)>{{ $name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -126,8 +126,8 @@
                             <tr>
                                 <td class="whitespace-nowrap text-gray-500">{{ \Illuminate\Support\Carbon::parse($issue->date)->format('d/m/Y') }}</td>
                                 <td class="w-full max-w-0">
-                                    <p class="truncate font-medium">{{ $issue->item }}</p>
-                                    <p class="truncate text-xs text-gray-500">{{ collect([$issue->department, $issue->site])->filter()->implode(' · ') }}</p>
+                                    <p class="truncate font-medium">{{ $issue->stock?->item }}</p>
+                                    <p class="truncate text-xs text-gray-500">{{ collect([$issue->department?->type_name, $issue->site?->type_name])->filter()->implode(' · ') }}</p>
                                 </td>
                                 <td class="text-end tabular-nums">{{ $issue->qty }}</td>
                                 <td class="whitespace-nowrap">{{ $issue->taken_by }}</td>

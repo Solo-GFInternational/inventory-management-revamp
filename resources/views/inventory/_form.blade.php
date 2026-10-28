@@ -1,25 +1,29 @@
 {{--
     The inventory form's fields, shared by the create modal and each row's
     edit modal on the Inventory page.
-      $inventory    the row being edited, or null when creating
-      $stocks       active stock rows (item, qty), for the Item select
-      $departments  config('inventory.departments')
-      $sites        config('inventory.sites')
+      $inventory    the row being edited (stock, department and site loaded), or null when creating
+      $stocks       active stock rows (id, item, qty), for the Item select
+      $departments  Type::options('department'), id => name
+      $sites        Type::options('site'), id => name
       $prefix       prefix for the field ids, unique per form on the page
       $useOld       whether to repopulate from old() input — only the form that
                     was actually submitted should
 --}}
 @php
     $value = fn (string $field, $default = null) => $useOld ? old($field, $default) : $default;
+    $isSelected = fn (string $field, $default, $id) => (string) $value($field, $default) === (string) $id;
 
-    // An old row may name an item, department or site that's no longer listed;
-    // keep it selectable so saving the row doesn't silently change it.
-    $itemNames = $stocks->pluck('item');
-    $extraItem = $inventory && ! $itemNames->contains($inventory->item) ? $inventory->item : null;
-    $departmentOptions = $inventory && $inventory->department && ! in_array($inventory->department, $departments, true)
-        ? [...$departments, $inventory->department] : $departments;
-    $siteOptions = $inventory && $inventory->site && ! in_array($inventory->site, $sites, true)
-        ? [...$sites, $inventory->site] : $sites;
+    // An old row may hold an item, department or site that has since been
+    // deactivated; keep it selectable so saving the row doesn't silently change it.
+    $extraStock = $inventory?->stock && ! $stocks->contains('id', $inventory->stock_id) ? $inventory->stock : null;
+    $departmentOptions = $departments;
+    if ($inventory?->department && ! $departments->has($inventory->department_id)) {
+        $departmentOptions = $departments->union([$inventory->department_id => $inventory->department->type_name]);
+    }
+    $siteOptions = $sites;
+    if ($inventory?->site && ! $sites->has($inventory->site_id)) {
+        $siteOptions = $sites->union([$inventory->site_id => $inventory->site->type_name]);
+    }
 
     $date = $value('date', $inventory ? substr((string) $inventory->date, 0, 10) : now()->toDateString());
 @endphp
@@ -46,16 +50,16 @@
     </div>
 
     <div class="sm:col-span-2">
-        <label for="{{ $prefix }}item" class="gf-label">Item</label>
-        <select id="{{ $prefix }}item" name="item" required class="gf-input select-arrow">
+        <label for="{{ $prefix }}stock_id" class="gf-label">Item</label>
+        <select id="{{ $prefix }}stock_id" name="stock_id" required class="gf-input select-arrow">
             <option value="">Select an item</option>
             @foreach ($stocks as $stock)
-                <option value="{{ $stock->item }}" @selected($value('item', $inventory?->item) === $stock->item)>
+                <option value="{{ $stock->id }}" @selected($isSelected('stock_id', $inventory?->stock_id, $stock->id))>
                     {{ $stock->item }} ({{ (int) $stock->qty }} in stock)
                 </option>
             @endforeach
-            @if ($extraItem)
-                <option value="{{ $extraItem }}" @selected($value('item', $inventory->item) === $extraItem)>{{ $extraItem }} (not in stock list)</option>
+            @if ($extraStock)
+                <option value="{{ $extraStock->id }}" @selected($isSelected('stock_id', $inventory->stock_id, $extraStock->id))>{{ $extraStock->item }} (not in stock list)</option>
             @endif
         </select>
         @if ($stocks->isEmpty())
@@ -85,21 +89,21 @@
     </div>
 
     <div>
-        <label for="{{ $prefix }}department" class="gf-label">Department</label>
-        <select id="{{ $prefix }}department" name="department" required class="gf-input select-arrow">
+        <label for="{{ $prefix }}department_id" class="gf-label">Department</label>
+        <select id="{{ $prefix }}department_id" name="department_id" required class="gf-input select-arrow">
             <option value="">Select a department</option>
-            @foreach ($departmentOptions as $department)
-                <option value="{{ $department }}" @selected($value('department', $inventory?->department) === $department)>{{ $department }}</option>
+            @foreach ($departmentOptions as $id => $name)
+                <option value="{{ $id }}" @selected($isSelected('department_id', $inventory?->department_id, $id))>{{ $name }}</option>
             @endforeach
         </select>
     </div>
 
     <div>
-        <label for="{{ $prefix }}site" class="gf-label">Site</label>
-        <select id="{{ $prefix }}site" name="site" required class="gf-input select-arrow">
+        <label for="{{ $prefix }}site_id" class="gf-label">Site</label>
+        <select id="{{ $prefix }}site_id" name="site_id" required class="gf-input select-arrow">
             <option value="">Select a site</option>
-            @foreach ($siteOptions as $site)
-                <option value="{{ $site }}" @selected($value('site', $inventory?->site) === $site)>{{ $site }}</option>
+            @foreach ($siteOptions as $id => $name)
+                <option value="{{ $id }}" @selected($isSelected('site_id', $inventory?->site_id, $id))>{{ $name }}</option>
             @endforeach
         </select>
     </div>

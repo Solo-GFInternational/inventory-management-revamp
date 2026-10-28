@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Inventory;
 use App\Models\Stock;
+use App\Models\Type;
 use App\Services\StockLedger;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -14,7 +16,14 @@ use Illuminate\Validation\ValidationException;
 class InventoryController extends Controller
 {
     /** The fields a user fills in; also the fields compared for an edit's change log. */
-    private const FIELDS = ['date', 'qty', 'item', 'serial_number', 'condition', 'taken_by', 'department', 'site'];
+    private const FIELDS = ['date', 'qty', 'stock_id', 'serial_number', 'condition', 'taken_by', 'department_id', 'site_id'];
+
+    /**
+     * Foreign-key fields and the key they are stored under in change_log. The
+     * change log records names (item, department, site), not ids, so the
+     * approvals page shows what the user saw when they made the edit.
+     */
+    private const LOG_KEYS = ['stock_id' => 'item', 'department_id' => 'department', 'site_id' => 'site'];
 
     public function __construct(private StockLedger $ledger) {}
 
@@ -22,14 +31,14 @@ class InventoryController extends Controller
     {
         $filters = [
             'taken_by' => trim((string) $request->query('taken_by', '')),
-            'site' => (string) $request->query('site', ''),
+            'site_id' => ctype_digit((string) $request->query('site_id', '')) ? (string) $request->query('site_id') : '',
             'status' => (string) $request->query('status', ''),
         ];
 
         $inventories = Inventory::active()
-            ->with('giver')
+            ->with(['giver', 'stock', 'department', 'site'])
             ->when($filters['taken_by'] !== '', fn ($q) => $q->where('taken_by', 'like', '%'.$filters['taken_by'].'%'))
-            ->when($filters['site'] !== '', fn ($q) => $q->where('site', $filters['site']))
+            ->when($filters['site_id'] !== '', fn ($q) => $q->where('site_id', (int) $filters['site_id']))
             ->when(in_array($filters['status'], ['approved', 'pending'], true), fn ($q) => $q->where('status', $filters['status']))
             ->orderByDesc('date')
             ->orderByDesc('id')
@@ -39,9 +48,11 @@ class InventoryController extends Controller
         return view('inventory.index', [
             'inventories' => $inventories,
             'filters' => $filters,
-            'stocks' => Stock::active()->orderBy('item')->get(['item', 'qty']),
-            'departments' => config('inventory.departments'),
-            'sites' => config('inventory.sites'),
+            'stocks' => Stock::active()->orderBy('item')->get(['id', 'item', 'qty']),
+            'departments' => Type::options(Type::DEPARTMENT),
+            'sites' => Type::options(Type::SITE),
+            // The filter keeps a site that has since been deactivated selectable.
+            'filterSites' => Type::options(Type::SITE, $filters['site_id'] !== '' ? (int) $filters['site_id'] : null),
         ]);
     }
 
@@ -75,8 +86,14 @@ class InventoryController extends Controller
 
         $changes = [];
         foreach (self::FIELDS as $field) {
-            if ($this->normalise($field, $before[$field]) !== $this->normalise($field, $inventory->$field)) {
-                $changes[$field] = ['old' => $this->normalise($field, $before[$field]), 'new' => $this->normalise($field, $inventory->$field)];
+            $old = $this->normalise($field, $before[$field]);
+            $new = $this->normalise($field, $inventory->$field);
+
+            if ($old !== $new) {
+                $changes[self::LOG_KEYS[$field] ?? $field] = [
+                    'old' => $this->displayValue($field, $old),
+                    'new' => $this->displayValue($field, $new),
+                ];
             }
         }
 
@@ -111,7 +128,7 @@ class InventoryController extends Controller
     {
         $inventories = Inventory::active()
             ->pending()
-            ->with(['giver', 'editor'])
+            ->with(['giver', 'editor', 'stock', 'department', 'site'])
             ->orderBy('updated_at')
             ->get();
 
@@ -168,7 +185,7 @@ class InventoryController extends Controller
         $year = (int) ($request->query('year') ?: now()->year);
 
         $inventories = Inventory::active()
-            ->with(['giver', 'editor'])
+            ->with(['giver', 'stock', 'department', 'site'])
             ->whereYear('date', $year)
             ->orderBy('date')
             ->orderBy('id')
@@ -181,38 +198,73 @@ class InventoryController extends Controller
 
     /**
      * Validate the create/edit form, including that a new-condition item
-     * doesn't ask for more than is on the shelf.
+     * doesn't ask for more than is on the shelf. Items, departments and sites
+     * must be active, except that a row being edited may keep the one it has.
      */
     private function validated(Request $request, ?Inventory $inventory = null): array
     {
-        // An old row may hold a department or site that's no longer listed.
-        $departments = array_filter([...config('inventory.departments'), $inventory?->department]);
-        $sites = array_filter([...config('inventory.sites'), $inventory?->site]);
-
         $data = $request->validate([
             'date' => ['required', 'date'],
-            'item' => ['required', 'string', 'max:255'],
+            'stock_id' => ['required', 'integer',
+                Rule::exists(Stock::class, 'id')->where($this->activeOr($inventory?->stock_id))],
             'qty' => ['required', 'integer', 'min:1'],
             'serial_number' => ['nullable', 'string', 'max:255'],
             'condition' => ['required', Rule::in(['new', 'used'])],
             'taken_by' => ['required', 'string', 'max:255'],
-            'department' => ['required', Rule::in($departments)],
-            'site' => ['required', Rule::in($sites)],
+            'department_id' => ['required', 'integer',
+                Rule::exists(Type::class, 'id')->where('type_group', Type::DEPARTMENT)->where($this->activeOr($inventory?->department_id))],
+            'site_id' => ['required', 'integer',
+                Rule::exists(Type::class, 'id')->where('type_group', Type::SITE)->where($this->activeOr($inventory?->site_id))],
+        ], [
+            'stock_id.exists' => 'The chosen item is no longer in the stock list.',
+            'department_id.exists' => 'The chosen department is no longer available.',
+            'site_id.exists' => 'The chosen site is no longer available.',
+        ], [
+            'stock_id' => 'item',
+            'department_id' => 'department',
+            'site_id' => 'site',
         ]);
 
-        if ($data['condition'] === 'new') {
-            $available = $this->ledger->available($data['item'], $inventory);
+        foreach (['qty', 'stock_id', 'department_id', 'site_id'] as $field) {
+            $data[$field] = (int) $data[$field];
+        }
 
-            if ((int) $data['qty'] > $available) {
+        if ($data['condition'] === 'new') {
+            $available = $this->ledger->available($data['stock_id'], $inventory);
+
+            if ($data['qty'] > $available) {
+                $item = (string) Stock::whereKey($data['stock_id'])->value('item');
+
                 throw ValidationException::withMessages([
-                    'qty' => $this->ledger->shortfallMessage($data['item'], $available, (int) $data['qty']),
+                    'qty' => $this->ledger->shortfallMessage($item, $available, $data['qty']),
                 ]);
             }
         }
 
-        $data['qty'] = (int) $data['qty'];
-
         return $data;
+    }
+
+    /** An exists-rule condition: the row is active, or is the one the record already holds. */
+    private function activeOr(mixed $keepId): Closure
+    {
+        return fn ($query) => $query->where('active_yn', true)
+            ->when($keepId, fn ($query) => $query->orWhere('id', $keepId));
+    }
+
+    /** The name a foreign-key value is shown and logged as (other fields as they are). */
+    private function displayValue(string $field, ?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $name = match ($field) {
+            'stock_id' => Stock::whereKey($value)->value('item'),
+            'department_id', 'site_id' => Type::whereKey($value)->value('type_name'),
+            default => $value,
+        };
+
+        return $name ?? $value;
     }
 
     /** Compare and log values as plain strings (dates as Y-m-d, blanks as null). */

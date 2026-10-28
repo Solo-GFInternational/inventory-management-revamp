@@ -4,15 +4,18 @@ namespace Tests\Feature;
 
 use App\Models\Inventory;
 use App\Models\Stock;
+use App\Models\Type;
 use App\Models\User;
 use App\Support\AuditTrail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
+use Tests\Concerns\CreatesTypes;
 use Tests\TestCase;
 
 class AuditTrailTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesTypes, RefreshDatabase;
 
     private function makeUser(string $role = 'user', array $attributes = []): User
     {
@@ -24,20 +27,7 @@ class AuditTrailTest extends TestCase
 
     private function makeInventory(User $givenBy, array $overrides = []): Inventory
     {
-        $inventory = new Inventory;
-        $inventory->forceFill($overrides + [
-            'date' => now()->toDateString(),
-            'qty' => 1,
-            'item' => 'Laptop Bag',
-            'condition' => 'new',
-            'given_by' => $givenBy->id,
-            'taken_by' => 'Jane',
-            'department' => 'Finance',
-            'site' => 'Dry Goods',
-            'status' => 'approved',
-        ])->save();
-
-        return $inventory;
+        return $this->makeInventoryRow($givenBy, $overrides);
     }
 
     private function entries(?string $logName = null)
@@ -64,17 +54,19 @@ class AuditTrailTest extends TestCase
         $created = $this->entries('inventory')->last();
         $this->assertSame('created', $created->event);
         $this->assertEquals($admin->id, $created->causer_id);
-        $this->assertSame('Laptop Bag', $created->properties['attributes']['item']);
+        $this->assertEquals($inventory->stock_id, $created->properties['attributes']['stock_id']);
 
-        $inventory->update(['qty' => 3, 'site' => 'Bakery']);
+        $dryGoods = $inventory->site_id;
+        $bakery = $this->makeType(Type::SITE, 'Bakery');
+        $inventory->update(['qty' => 3, 'site_id' => $bakery->id]);
 
         $updated = $this->entries('inventory')->last();
         $this->assertSame('updated', $updated->event);
-        $this->assertEquals(['qty' => 1, 'site' => 'Dry Goods'], collect($updated->properties['old'])->only(['qty', 'site'])->map(fn ($v, $k) => $k === 'qty' ? (int) $v : $v)->all());
+        $this->assertEquals(['qty' => 1, 'site_id' => $dryGoods], collect($updated->properties['old'])->only(['qty', 'site_id'])->all());
         $this->assertEquals(3, $updated->properties['attributes']['qty']);
-        $this->assertSame('Bakery', $updated->properties['attributes']['site']);
+        $this->assertEquals($bakery->id, $updated->properties['attributes']['site_id']);
         // Only what changed; bookkeeping is left out.
-        $this->assertArrayNotHasKey('item', $updated->properties['attributes']);
+        $this->assertArrayNotHasKey('stock_id', $updated->properties['attributes']);
         $this->assertArrayNotHasKey('updated_by', $updated->properties['attributes']);
         $this->assertArrayNotHasKey('updated_at', $updated->properties['attributes']);
 
@@ -173,17 +165,17 @@ class AuditTrailTest extends TestCase
         $this->get('/login')->assertOk();
         $this->assertCount(0, $this->entries(AuditTrail::LOG_NAVIGATION));
 
-        $this->actingAs($user)->get('/dashboard')->assertOk();
+        $this->actingAs($user)->get('/profile')->assertOk();
 
         $views = $this->entries(AuditTrail::LOG_NAVIGATION);
         $this->assertCount(1, $views);
-        $this->assertSame('Opened Dashboard', $views->first()->description);
-        $this->assertSame('dashboard', $views->first()->properties['route']);
-        $this->assertSame('/dashboard', $views->first()->properties['url']);
+        $this->assertSame('Opened Profile', $views->first()->description);
+        $this->assertSame('profile.edit', $views->first()->properties['route']);
+        $this->assertSame('/profile', $views->first()->properties['url']);
         $this->assertSame('127.0.0.1', AuditTrail::ip($views->first()));
 
         // A reload straight away, a redirect, a form post and a JSON call aren't pages.
-        $this->actingAs($user)->get('/dashboard');
+        $this->actingAs($user)->get('/profile');
         $this->actingAs($user)->get('/');
         $this->actingAs($user)->post('/stock', ['item' => 'Mouse', 'qty' => 2]);
         $this->actingAs($user)->getJson('/inventory');
@@ -250,5 +242,124 @@ class AuditTrailTest extends TestCase
         $this->assertSame('Updated stock', AuditTrail::action($entry));
         $this->assertSame('Stock #'.$stock->id.' – Mouse', AuditTrail::about($entry));
         $this->assertSame([['field' => 'Quantity', 'old' => '5', 'new' => '4']], AuditTrail::changes($entry));
+    }
+
+    public function test_inventory_changes_show_item_department_and_site_names()
+    {
+        $admin = $this->makeUser('admin', ['name' => 'Ada Admin']);
+        $this->actingAs($admin);
+
+        $inventory = $this->makeInventory($admin, ['item' => 'Docking Station', 'department' => 'Finance', 'site' => 'Dry Goods']);
+        $created = $this->entries('inventory')->last();
+
+        $changes = collect(AuditTrail::changes($created))->pluck('new', 'field');
+        $this->assertSame('Docking Station', $changes['Item']);
+        $this->assertSame('Finance', $changes['Department']);
+        $this->assertSame('Dry Goods', $changes['Site']);
+        $this->assertSame('Ada Admin', $changes['Given by']);
+
+        $hr = $this->makeType(Type::DEPARTMENT, 'HR');
+        $monitor = $this->stockNamed('Monitor');
+        $inventory->update(['department_id' => $hr->id, 'stock_id' => $monitor->id]);
+
+        $updated = $this->entries('inventory')->last();
+        $this->assertEqualsCanonicalizing([
+            ['field' => 'Item', 'old' => 'Docking Station', 'new' => 'Monitor'],
+            ['field' => 'Department', 'old' => 'Finance', 'new' => 'HR'],
+        ], AuditTrail::changes($updated));
+        // About uses the record's current stock item.
+        $this->assertSame('Inventory #'.$inventory->id.' – Monitor for Jane', AuditTrail::about($updated));
+
+        // A type renamed or deactivated since still shows (by its current name).
+        $hr->forceFill(['type_name' => 'People', 'active_yn' => false])->save();
+
+        $this->get('/settings/audit-trail?type=changes')
+            ->assertOk()
+            ->assertSee('Docking Station')
+            ->assertSee('Monitor')
+            ->assertSee('People')
+            ->assertSee('Inventory #'.$inventory->id.' – Monitor for Jane');
+    }
+
+    public function test_names_are_looked_up_in_bulk()
+    {
+        $admin = $this->makeUser('admin');
+        $this->actingAs($admin);
+
+        foreach (['Mouse', 'Keyboard', 'Headset', 'Monitor'] as $i => $item) {
+            $this->makeInventory($admin, ['item' => $item, 'department' => 'Dept '.$i, 'site' => 'Site '.$i]);
+        }
+
+        $entries = $this->entries('inventory')->load('subject');
+        $this->assertCount(4, $entries);
+
+        DB::enableQueryLog();
+        $names = AuditTrail::names($entries);
+        $this->assertCount(3, DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertEqualsCanonicalizing(['Mouse', 'Keyboard', 'Headset', 'Monitor'], array_values($names['stocks']));
+        $this->assertCount(8, $names['types']);
+
+        // With the names given, formatting needs no further queries.
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        foreach ($entries as $entry) {
+            AuditTrail::changes($entry, $names);
+        }
+        $this->assertCount(0, DB::getQueryLog());
+        DB::disableQueryLog();
+    }
+
+    public function test_about_falls_back_to_logged_values_when_the_record_is_gone()
+    {
+        $admin = $this->makeUser('admin');
+        $this->actingAs($admin);
+
+        $inventory = $this->makeInventory($admin, ['item' => 'Webcam', 'taken_by' => 'Sam']);
+        $id = $inventory->id;
+
+        // Rows are never deleted by the app; remove it behind its back.
+        Inventory::query()->whereKey($id)->toBase()->delete();
+
+        $entry = $this->entries('inventory')->last()->fresh();
+        $this->assertNull($entry->subject);
+        $this->assertSame('Inventory #'.$id.' – Webcam for Sam', AuditTrail::about($entry));
+    }
+
+    public function test_type_changes_are_logged_and_read_well()
+    {
+        $admin = $this->makeUser('admin');
+        $this->actingAs($admin);
+
+        $this->get(route('types.index'))->assertOk();
+        $this->post(route('types.store'), ['type_group' => Type::DEPARTMENT, 'type_name' => 'Finance', 'sort_order' => 5])
+            ->assertSessionHasNoErrors();
+        $type = Type::query()->where('type_name', 'Finance')->firstOrFail();
+
+        $created = $this->entries('type')->last();
+        $this->assertSame('Created type', AuditTrail::action($created));
+        $this->assertSame('Department – Finance', AuditTrail::about($created));
+        $changes = collect(AuditTrail::changes($created))->pluck('new', 'field');
+        $this->assertSame('Department', $changes['Group']);
+        $this->assertSame('Finance', $changes['Name']);
+        $this->assertSame('5', $changes['Order']);
+
+        $this->put(route('types.update', $type), ['type_name' => 'Finance & Admin', 'sort_order' => 5]);
+        $updated = $this->entries('type')->last();
+        $this->assertSame('Updated type', AuditTrail::action($updated));
+        $this->assertSame([['field' => 'Name', 'old' => 'Finance', 'new' => 'Finance & Admin']], AuditTrail::changes($updated));
+
+        $this->delete(route('types.destroy', $type));
+        $this->assertSame('Deactivated type', AuditTrail::action($this->entries('type')->last()));
+
+        $this->patch(route('types.reactivate', $type));
+        $this->assertSame('Reactivated type', AuditTrail::action($this->entries('type')->last()));
+
+        $this->get('/settings/audit-trail')
+            ->assertOk()
+            ->assertSee('Created type')
+            ->assertSee('Department – Finance &amp; Admin', false)
+            ->assertSee('Opened Settings – Types', false);
     }
 }

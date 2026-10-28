@@ -87,4 +87,22 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->fresh());
         $this->assertTrue($user->fresh()->active_yn);
     }
+
+    public function test_email_of_another_account_cannot_be_taken_even_if_deactivated(): void
+    {
+        $user = User::factory()->create();
+        $gone = User::factory()->create();
+        $gone->forceFill(['active_yn' => false])->save();
+
+        $this
+            ->actingAs($user)
+            ->from('/profile')
+            ->patch('/profile', [
+                'name' => $user->name,
+                'email' => $gone->email,
+            ])
+            ->assertSessionHasErrors('email');
+
+        $this->assertNotSame($gone->email, $user->fresh()->email);
+    }
 }

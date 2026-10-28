@@ -2,10 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\Inventory;
 use App\Models\Stock;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\CreatesInventory;
 use Tests\TestCase;
 
 /**
@@ -15,30 +14,7 @@ use Tests\TestCase;
  */
 class ProcessingAlertTest extends TestCase
 {
-    use RefreshDatabase;
-
-    private function makeUser(string $role, array $attributes = []): User
-    {
-        $user = User::factory()->create($attributes);
-        $user->forceFill(['role' => $role])->save();
-
-        return $user->fresh();
-    }
-
-    private function makeInventory(User $givenBy, array $overrides = []): Inventory
-    {
-        return Inventory::create($overrides + [
-            'date' => now()->toDateString(),
-            'qty' => 1,
-            'item' => 'Laptop Bag',
-            'condition' => 'used',
-            'given_by' => $givenBy->id,
-            'taken_by' => 'Someone',
-            'department' => 'Finance',
-            'site' => 'Dry Goods',
-            'status' => 'approved',
-        ]);
-    }
+    use CreatesInventory, RefreshDatabase;
 
     /**
      * The opening <form> tags on the page.

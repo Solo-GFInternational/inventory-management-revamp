@@ -24,6 +24,8 @@ class User extends Authenticatable
 {
     use HasFactory, HasStandardColumns, Notifiable;
 
+    protected $table = 'security.users';
+
     public function isAdmin()
     {
         return $this->role === 'admin';

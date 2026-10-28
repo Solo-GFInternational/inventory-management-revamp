@@ -57,10 +57,12 @@ class UserController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            // Only active accounts block an email: a deactivated account's
-            // email is reused by reactivating that account (below).
+            // Only active accounts block an email (as the filtered index
+            // ux_users_email does): a deactivated account's email is reused
+            // by reactivating that account (below). The model class, not
+            // 'security.users': a dotted table string is read as connection.table.
             'email' => ['required', 'string', 'email', 'max:255',
-                Rule::unique('users', 'email')->where('active_yn', true)],
+                Rule::unique(User::class, 'email')->where('active_yn', true)],
             'role' => ['required', Rule::in(array_keys(self::ROLES))],
         ], [
             'email.unique' => 'An active account already uses this email.',
@@ -77,9 +79,10 @@ class UserController extends Controller
             'password' => Hash::make($password),
         ];
 
-        // The email column is unique across all rows, so adding a deactivated
-        // person back restores their account rather than failing or duplicating.
-        $user = User::where('email', $data['email'])->where('active_yn', false)->first();
+        // The index only stops two active accounts sharing an email, but adding
+        // a deactivated person back restores their account (and its history)
+        // rather than creating a second row for the same person.
+        $user = User::where('email', $data['email'])->where('active_yn', false)->orderByDesc('updated_at')->first();
         $reactivated = $user !== null;
 
         if ($reactivated) {
@@ -140,10 +143,15 @@ class UserController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+            // Unlike create, deactivated accounts count too: taking a
+            // deactivated account's email here would leave two rows for it,
+            // and that account could no longer be reactivated.
             'email' => ['required', 'string', 'email', 'max:255',
-                Rule::unique('users', 'email')->ignore($user->id)],
+                Rule::unique(User::class, 'email')->ignore($user->id)],
             'role' => ['required', Rule::in(array_keys(self::ROLES))],
             'password' => ['nullable', 'string', 'confirmed', 'min:8'],
+        ], [
+            'email.unique' => 'Another account, active or deactivated, already uses this email.',
         ]);
 
         // An admin demoting themselves could leave nobody able to manage users.
@@ -188,6 +196,14 @@ class UserController extends Controller
 
     public function reactivate(User $user): RedirectResponse
     {
+        // Only one active account per email (ux_users_email); data from before
+        // the filtered index may hold a second row with this email.
+        $clash = User::where('email', $user->email)->where('active_yn', true)->whereKeyNot($user->getKey())->exists();
+
+        if ($clash) {
+            return back()->with('error', "Another active account already uses {$user->email}, so {$user->name} can't be reactivated. Change one of the emails first.");
+        }
+
         $user->active_yn = true;
         $user->save();
 

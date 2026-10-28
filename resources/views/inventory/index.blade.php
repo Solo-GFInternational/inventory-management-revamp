@@ -5,7 +5,7 @@
     @php
         $isAdmin = auth()->user()->isAdmin();
         $reopen = old('_modal');
-        $hasFilters = $filters['taken_by'] !== '' || $filters['site'] !== '' || $filters['status'] !== '';
+        $hasFilters = $filters['taken_by'] !== '' || $filters['site_id'] !== '' || $filters['status'] !== '';
     @endphp
 
     <x-page-header title="Inventory"
@@ -30,10 +30,10 @@
                 <input type="search" name="taken_by" value="{{ $filters['taken_by'] }}" placeholder="Search taken by" aria-label="Search taken by"
                        class="gf-input ps-10">
             </div>
-            <select name="site" aria-label="Site" class="gf-input select-arrow w-full sm:w-56">
+            <select name="site_id" aria-label="Site" class="gf-input select-arrow w-full sm:w-56">
                 <option value="">All sites</option>
-                @foreach ($sites as $site)
-                    <option value="{{ $site }}" @selected($filters['site'] === $site)>{{ $site }}</option>
+                @foreach ($filterSites as $id => $name)
+                    <option value="{{ $id }}" @selected($filters['site_id'] === (string) $id)>{{ $name }}</option>
                 @endforeach
             </select>
             <select name="status" aria-label="Status" class="gf-input select-arrow w-full sm:w-48">
@@ -73,7 +73,7 @@
                             <td @class(['whitespace-nowrap', 'font-semibold text-amber-700' => $changed('date')])>
                                 {{ \Illuminate\Support\Carbon::parse($inventory->date)->format('d M Y') }}
                             </td>
-                            <td @class(['font-medium', 'text-amber-700' => $changed('item')])>{{ $inventory->item }}</td>
+                            <td @class(['font-medium', 'text-amber-700' => $changed('item')])>{{ $inventory->stock?->item }}</td>
                             <td @class(['text-end tabular-nums', 'font-semibold text-amber-700' => $changed('qty')])>{{ $inventory->qty }}</td>
                             <td @class(['text-gray-500', 'font-semibold text-amber-700' => $changed('serial_number')])>{{ $inventory->serial_number ?: '—' }}</td>
                             <td @class(['font-semibold text-amber-700' => $changed('condition')])>{{ ucfirst($inventory->condition) }}</td>
@@ -83,15 +83,15 @@
                                     <span class="block text-xs text-gray-400">Given by {{ $inventory->giver->name }}</span>
                                 @endif
                             </td>
-                            <td @class(['font-semibold text-amber-700' => $changed('department')])>{{ $inventory->department }}</td>
-                            <td @class(['font-semibold text-amber-700' => $changed('site')])>{{ $inventory->site ?: '—' }}</td>
+                            <td @class(['font-semibold text-amber-700' => $changed('department')])>{{ $inventory->department?->type_name }}</td>
+                            <td @class(['font-semibold text-amber-700' => $changed('site')])>{{ $inventory->site?->type_name ?? '—' }}</td>
                             <td class="whitespace-nowrap">@include('inventory._status', ['inventory' => $inventory])</td>
                             <td>
                                 <div class="flex items-center justify-end gap-2">
                                     <x-icon-button icon="pencil-square" label="Edit" data-modal-open="edit-inventory-{{ $inventory->getKey() }}" />
                                     @if ($isAdmin && $inventory->isPending())
                                         <form method="POST" action="{{ route('inventory.approve', $inventory) }}"
-                                              data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
+                                              data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->stock?->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
                                               data-confirm-title="Approve this record?" data-confirm-button="Yes, approve"
                                               data-processing="Approving…" data-processing-text="Updating the record and the stock count.">
                                             @csrf
@@ -101,7 +101,7 @@
                                     @endif
                                     @if ($isAdmin)
                                         <form method="POST" action="{{ route('inventory.destroy', $inventory) }}"
-                                              data-confirm="{{ $inventory->status === 'approved' && $inventory->condition === 'new' ? 'The record is hidden and its '.$inventory->qty.' × '.$inventory->item.' go back into stock.' : 'The record is hidden from the inventory list.' }}"
+                                              data-confirm="{{ $inventory->status === 'approved' && $inventory->condition === 'new' ? 'The record is hidden and its '.$inventory->qty.' × '.$inventory->stock?->item.' go back into stock.' : 'The record is hidden from the inventory list.' }}"
                                               data-confirm-title="Deactivate this record?" data-confirm-button="Yes, deactivate"
                                               data-processing="Deactivating…">
                                             @csrf
@@ -160,7 +160,7 @@
     @foreach ($inventories as $inventory)
         @php $modalId = 'edit-inventory-'.$inventory->getKey(); @endphp
         <x-modal :id="$modalId" heading="Edit inventory" width="max-w-3xl" icon="pencil-square"
-                 :description="$isAdmin ? $inventory->item.' — '.$inventory->taken_by : 'Your changes go to an administrator for approval.'"
+                 :description="$isAdmin ? $inventory->stock?->item.' — '.$inventory->taken_by : 'Your changes go to an administrator for approval.'"
                  :open="$reopen === $modalId">
             @if ($reopen === $modalId)
                 <x-form-errors />

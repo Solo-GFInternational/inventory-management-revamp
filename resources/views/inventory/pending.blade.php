@@ -38,14 +38,14 @@
                         <tr class="align-top">
                             <td class="whitespace-nowrap">@include('inventory._status', ['inventory' => $inventory])</td>
                             <td class="whitespace-nowrap">{{ \Illuminate\Support\Carbon::parse($inventory->date)->format('d M Y') }}</td>
-                            <td class="font-medium">{{ $inventory->item }}</td>
+                            <td class="font-medium">{{ $inventory->stock?->item }}</td>
                             <td class="text-end tabular-nums">{{ $inventory->qty }}</td>
                             <td>{{ ucfirst($inventory->condition) }}</td>
                             <td>
                                 {{ $inventory->taken_by }}
-                                <span class="block text-xs text-gray-400">{{ $inventory->department }}</span>
+                                <span class="block text-xs text-gray-400">{{ $inventory->department?->type_name }}</span>
                             </td>
-                            <td>{{ $inventory->site ?: '—' }}</td>
+                            <td>{{ $inventory->site?->type_name ?? '—' }}</td>
                             <td class="text-gray-500">
                                 {{ ($inventory->approval_type === 'edit' ? $inventory->editor : $inventory->giver)?->name ?? 'Unknown' }}
                             </td>
@@ -72,7 +72,7 @@
                             <td>
                                 <div class="flex items-center justify-end gap-2">
                                     <form method="POST" action="{{ route('inventory.approve', $inventory) }}"
-                                          data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
+                                          data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->stock?->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
                                           data-confirm-title="Approve this record?" data-confirm-button="Yes, approve"
                                           data-processing="Approving…" data-processing-text="Updating the record and the stock count.">
                                         @csrf

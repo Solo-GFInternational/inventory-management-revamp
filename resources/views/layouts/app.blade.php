@@ -89,7 +89,7 @@
                         @endif
                     </x-nav-link>
                     <x-nav-link :href="route('users.index')" icon="cog-6-tooth"
-                                :active="request()->routeIs('settings') || request()->routeIs('users.*') || request()->routeIs('audit.*')">
+                                :active="request()->routeIs('settings') || request()->routeIs('users.*') || request()->routeIs('audit.*') || request()->routeIs('types.*')">
                         Settings
                     </x-nav-link>
                 @endif

@@ -11,6 +11,7 @@ Staff record each item they issue (a laptop bag, a mouse, a monitor…) against 
 - [How stock is counted](#how-stock-is-counted)
 - [Tech stack](#tech-stack)
 - [Local setup](#local-setup)
+- [Database structure](#database-structure)
 - [Configuration](#configuration)
 - [Running the tests](#running-the-tests)
 - [Deploying](#deploying)
@@ -24,6 +25,7 @@ Staff record each item they issue (a laptop bag, a mouse, a monitor…) against 
 - **Stock**: per-item **In stock**, **Given out** and **Total**, with low-stock and out-of-stock badges. Anyone can add stock; administrators can correct a count.
 - **Settings → Users**: create, edit, deactivate and reactivate accounts. A new user is emailed a generated temporary password; the administrator never sees it.
 - **Settings → Audit Trail**: who did what and when, from which IP address. It covers sign-ins (including failed ones), pages opened, and every record change with old → new values. Filter by user, type and date.
+- **Settings → Types**: the dropdown lists for departments and sites. Add, rename, reorder and deactivate options without a code change.
 - **No hard deletes**: "delete" deactivates a record, and deactivated records drop out of lists, totals and reports. Deactivated users can't sign in.
 
 ## Roles
@@ -36,7 +38,7 @@ Staff record each item they issue (a laptop bag, a mouse, a monitor…) against 
 | Add stock | ✓ | ✓ |
 | Approve, deactivate inventory | | ✓ |
 | Correct a stock count | | ✓ |
-| Settings (users, audit trail) | | ✓ |
+| Settings (users, audit trail, types) | | ✓ |
 
 Self-registration is turned off. Administrators create every account.
 
@@ -60,11 +62,11 @@ The system keeps these consistent automatically (`App\Services\StockLedger`):
 - SweetAlert2 for alerts, confirmations and "Processing…" spinners (served from `public/vendor`, no CDN)
 - Instrument Sans font and Heroicons, matching Goodman Fielder's other internal systems (site-visit, tender-management)
 - `spatie/laravel-activitylog` for the audit trail, `barryvdh/laravel-dompdf` for PDF reports
-- Databases: **MariaDB/MySQL in production**, **SQL Server** for local development. Migrations use only portable schema calls, so they run on both.
+- **Microsoft SQL Server**, with tables grouped into schemas (see [Database structure](#database-structure)). The legacy system ran on MariaDB; its data is imported once when this version goes live.
 
 ## Local setup
 
-Requirements: PHP 8.3+ (with `pdo_sqlsrv` for SQL Server, or `pdo_mysql`), Composer 2, Node 20+, and a database.
+Requirements: PHP 8.3+ with the `sqlsrv` / `pdo_sqlsrv` extensions, Composer 2, Node 20+, and a SQL Server database (2017 or later).
 
 ```bash
 git clone https://github.com/Solo-GFInternational/inventory-management-revamp.git
@@ -82,7 +84,7 @@ npm run build
 php artisan serve          # http://localhost:8000 (add --port=8010 if 8000 is taken)
 ```
 
-`--seed` creates two demo accounts and some sample stock and inventory:
+`--seed` loads the department and site lists, and creates two demo accounts with some sample stock and inventory:
 
 | Email | Password | Role |
 |---|---|---|
@@ -99,6 +101,22 @@ NODE_EXTRA_CA_CERTS=/path/to/windows-ca-bundle.pem npm install
 ```
 
 Don't turn off TLS verification instead.
+
+## Database structure
+
+SQL Server, with tables grouped into schemas by concern:
+
+| Schema | Tables | Purpose |
+|---|---|---|
+| `security` | `users`, `password_reset_tokens` | Accounts and sign-in |
+| `inventory` | `stocks`, `inventories`, `assets` | Stock items, equipment issued, fixed assets |
+| `ref` | `types` | Managed dropdown lists (departments, sites) |
+| `logs` | `activity_log` | The audit trail (append-only) |
+| `dbo` | `migrations`, `cache`, `jobs`, `sessions`, `failed_jobs`… | Laravel's own tables |
+
+- **Standard columns:** every business table has `active_yn`, `created_by`, `created_at`, `updated_by` and `updated_at`. The two user columns are foreign keys to `security.users`, filled in automatically from the signed-in user.
+- **Foreign keys:** an inventory record points at its stock item (`stock_id`), department and site (`department_id`, `site_id` → `ref.types`), and the users who gave and edited it. All foreign keys are `NO ACTION`, since nothing is ever hard-deleted.
+- **Constraint names:** `ux_` (unique), `ix_` (index), `fk_` (foreign key) and `ck_` (check), followed by the table and columns. Unique indexes on values that can be deactivated (email, item name, type name) only cover active rows. Fixed values (role, condition, status) are enforced with check constraints.
 
 ## Configuration
 
@@ -118,7 +136,7 @@ DB_PASSWORD=
 DB_TRUST_SERVER_CERTIFICATE=true
 ```
 
-Create the database first (for example `CREATE DATABASE inventory_management_revamp`). Production uses `DB_CONNECTION=mysql` with the usual host, port, username and password.
+Create the database first (for example `CREATE DATABASE inventory_management_revamp`); the first migration creates the schemas inside it. Production uses the same `sqlsrv` driver; set host, port, username and password if it doesn't use Windows authentication.
 
 ### Mail
 
@@ -138,7 +156,7 @@ With `QUEUE_CONNECTION=sync`, emails send while the page waits, behind a "Proces
 
 ### Other
 
-- **Lookup lists**: departments and sites are listed in `config/inventory.php`. Edit that file to add or rename one. The Item list comes from the Stock page.
+- **Lookup lists**: departments and sites are managed under **Settings → Types**. The Item list comes from the Stock page.
 - **Timestamps** are stored in UTC.
 
 ## Running the tests
@@ -156,17 +174,11 @@ The tests run against a real SQL Server database, `inventory_management_revamp_t
 
 1. Back up the production database.
 2. `composer install --no-dev --optimize-autoloader`, then `npm ci && npm run build`.
-3. Set `.env`: `APP_ENV=production`, `APP_DEBUG=false`, the MariaDB connection, and the mail settings above. Also set `MAIL_VERIFY_PEER=false` unless the relay has been given a trusted certificate; without either, every email fails.
+3. Set `.env`: `APP_ENV=production`, `APP_DEBUG=false`, the SQL Server connection, and the mail settings above. Also set `MAIL_VERIFY_PEER=false` unless the relay has been given a trusted certificate; without either, every email fails.
 4. `php artisan migrate --force`
 5. `php artisan optimize`
 
-**Before the first deployment of this version:** it upgrades the app from Laravel 9 to 13 and adds several migrations:
-
-- standard `active_yn` / `created_by` / `updated_by` columns
-- the activity log tables
-- renaming `password_resets` to `password_reset_tokens`
-
-These have only been run on SQL Server, so run them against a **copy** of the production MariaDB database first.
+**First deployment of this version:** it moves the system from MariaDB to SQL Server, and the migrations are a fresh baseline rather than changes to the old tables. Create an empty SQL Server database, run `php artisan migrate --force` and `php artisan db:seed --class=TypeSeeder --force` (not the demo seeder), then import the existing users, stock and inventory from the MariaDB system. Department, site and item text becomes ids pointing at `ref.types` and `inventory.stocks`. Rehearse the import on a copy first.
 
 ## Project layout
 
@@ -180,7 +192,8 @@ These have only been run on SQL Server, so run them against a **copy** of the pr
 | `resources/views/components` | Shared UI pieces: cards, buttons, icon buttons, modals, badges, page header, settings tabs |
 | `resources/views/layouts` | The signed-in layout (navy header menu) and the signed-out layout |
 | `resources/css/app.css`, `resources/js/app.js` | Colours and form styles; modals, confirmations, processing spinners and alerts |
-| `config/inventory.php` | Departments and sites |
+| `database/migrations` | The schema baseline: schemas, tables, foreign keys, indexes and checks |
+| `database/seeders/TypeSeeder.php` | The initial department and site lists |
 | `routes/web.php` | Every page and action, grouped by who may use them |
 
 `CLAUDE.md` has more detailed notes for developers on conventions and how the pieces fit together.

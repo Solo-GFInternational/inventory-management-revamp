@@ -10,20 +10,40 @@ use Illuminate\Database\Eloquent\Model;
 #[Fillable([
     'date',
     'qty',
-    'item',
+    'stock_id',
     'serial_number',
     'condition',
     'given_by',
     'taken_by',
-    'department',
+    'department_id',
     'status',
-    'site',
+    'site_id',
     'edited_by',
     'approval_type',
 ])]
 class Inventory extends Model
 {
     use HasFactory, HasStandardColumns;
+
+    protected $table = 'inventory.inventories';
+
+    /** The stock item issued (its name is `stock->item`). */
+    public function stock()
+    {
+        return $this->belongsTo(Stock::class);
+    }
+
+    /** ref.types row in the 'department' group. */
+    public function department()
+    {
+        return $this->belongsTo(Type::class, 'department_id');
+    }
+
+    /** ref.types row in the 'site' group. */
+    public function site()
+    {
+        return $this->belongsTo(Type::class, 'site_id');
+    }
 
     public function giver()
     {

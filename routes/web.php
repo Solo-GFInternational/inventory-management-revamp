@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StockController;
+use App\Http\Controllers\TypeController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -51,6 +52,12 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::delete('/settings/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
     Route::patch('/settings/users/{user}/reactivate', [UserController::class, 'reactivate'])->name('users.reactivate');
     Route::get('/settings/audit-trail', [AuditTrailController::class, 'index'])->name('audit.index');
+    // Managed dropdown lists (ref.types). Delete deactivates; reactivate restores.
+    Route::get('/settings/types', [TypeController::class, 'index'])->name('types.index');
+    Route::post('/settings/types', [TypeController::class, 'store'])->name('types.store');
+    Route::put('/settings/types/{type}', [TypeController::class, 'update'])->name('types.update');
+    Route::delete('/settings/types/{type}', [TypeController::class, 'destroy'])->name('types.destroy');
+    Route::patch('/settings/types/{type}/reactivate', [TypeController::class, 'reactivate'])->name('types.reactivate');
 });
 
 require __DIR__.'/auth.php';
