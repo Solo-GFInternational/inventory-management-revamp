@@ -67,7 +67,8 @@
                                     @if (! $user->isActive())
                                         <form method="POST" action="{{ route('users.reactivate', $user) }}"
                                               data-confirm="{{ $user->name }} will be able to sign in again with their existing password."
-                                              data-confirm-title="Reactivate user?" data-confirm-button="Yes, reactivate">
+                                              data-confirm-title="Reactivate user?" data-confirm-button="Yes, reactivate"
+                                              data-processing="Reactivating…">
                                             @csrf
                                             @method('PATCH')
                                             <x-icon-button type="submit" icon="arrow-path" label="Reactivate {{ $user->name }}" />
@@ -79,7 +80,8 @@
                                     @else
                                         <form method="POST" action="{{ route('users.destroy', $user) }}"
                                               data-confirm="{{ $user->name }} will no longer be able to sign in. Their records are kept, and you can reactivate them later."
-                                              data-confirm-title="Deactivate user?" data-confirm-button="Yes, deactivate">
+                                              data-confirm-title="Deactivate user?" data-confirm-button="Yes, deactivate"
+                                              data-processing="Deactivating…">
                                             @csrf
                                             @method('DELETE')
                                             <x-icon-button type="submit" icon="no-symbol" label="Deactivate {{ $user->name }}" color="danger" />
@@ -113,12 +115,13 @@
     --}}
     @php $reopen = old('_modal'); @endphp
 
-    <x-modal id="create-user" heading="New user" description="The person signs in with this email and the password you set."
+    <x-modal id="create-user" heading="New user" description="A temporary password is created and emailed to them with their sign-in details."
              icon="user-plus" :open="$reopen === 'create-user'">
         @if ($reopen === 'create-user')
             <x-form-errors />
         @endif
-        <form id="create-user-form" method="POST" action="{{ route('users.store') }}">
+        <form id="create-user-form" method="POST" action="{{ route('users.store') }}"
+              data-processing="Creating the account…" data-processing-text="Emailing their sign-in details — this can take a moment.">
             @csrf
             <input type="hidden" name="_modal" value="create-user">
             @include('settings.users._form', ['targetUser' => null, 'prefix' => 'create-user-', 'useOld' => $reopen === 'create-user'])
@@ -137,7 +140,8 @@
             @if ($reopen === $modalId)
                 <x-form-errors />
             @endif
-            <form id="{{ $modalId }}-form" method="POST" action="{{ route('users.update', $user) }}">
+            <form id="{{ $modalId }}-form" method="POST" action="{{ route('users.update', $user) }}"
+                  data-processing="Saving changes…">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">

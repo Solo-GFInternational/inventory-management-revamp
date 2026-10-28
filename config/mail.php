@@ -47,6 +47,14 @@ return [
             'password' => env('MAIL_PASSWORD'),
             'timeout' => null,
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+
+            // The Goodman Fielder relay (smtp.goodmanfielder.com.au) offers
+            // STARTTLS with a self-signed Exchange certificate (CN=SYDAWSEXH004A),
+            // so verification fails whatever CA bundle is trusted. As in the
+            // site-visit project: verify by default in production, skip it
+            // elsewhere; MAIL_VERIFY_PEER overrides either way. Symfony reads
+            // verify_peer as a top-level option (EsmtpTransportFactory).
+            'verify_peer' => filter_var(env('MAIL_VERIFY_PEER', env('APP_ENV') === 'production'), FILTER_VALIDATE_BOOL),
         ],
 
         'ses' => [

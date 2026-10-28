@@ -83,15 +83,34 @@ document.addEventListener('submit', (event) => {
 
     event.preventDefault();
 
+    // An open modal sits in the browser's top layer, above SweetAlert, so
+    // it's closed while asking and reopened (input intact) on Cancel.
+    const dialog = form.closest('dialog');
+    const wasOpen = dialog?.open ?? false;
+
+    if (wasOpen) {
+        dialog.close();
+    }
+
     window.gfSwal.confirm({
         title: form.dataset.confirmTitle || 'Are you sure?',
         text: form.dataset.confirm || undefined,
         confirmButtonText: form.dataset.confirmButton || 'Yes, continue',
     }).then((result) => {
-        if (result.isConfirmed) {
-            form.dataset.confirmed = '1';
-            form.requestSubmit(event.submitter ?? undefined);
+        if (! result.isConfirmed) {
+            if (wasOpen) {
+                dialog.showModal();
+            }
+
+            return;
         }
+
+        // The flag lets this one resubmission through; it's cleared straight
+        // after (the submit event fires synchronously inside requestSubmit), so
+        // a page restored by the Back button asks again.
+        form.dataset.confirmed = '1';
+        form.requestSubmit(event.submitter ?? undefined);
+        delete form.dataset.confirmed;
     });
 });
 
@@ -157,10 +176,14 @@ if (flash.status) {
 }
 
 /*
- * "Processing…" while a form whose action sends an email is submitted —
- * <form data-processing="Creating the account…" data-processing-text="...">.
+ * "Processing…" while a form that changes data is submitted —
+ * <form data-processing="Saving inventory…" data-processing-text="...">.
+ * Every create / edit / approve / deactivate form carries it (not GET
+ * filters, the PDF download — a file download never leaves the page, so the
+ * spinner would never close — or sign in / out).
  * Same alert as site-visit's window.gfProcessing: a loading spinner that
- * can't be dismissed, replaced by the next page's success or error alert.
+ * can't be dismissed, replaced by the next page's success or error alert
+ * (or the reopened modal when validation fails).
  * Runs after the data-confirm handler above, so a form that asks first only
  * shows it once confirmed, and the browser's own required-field checks have
  * already passed by the time a submit event fires.

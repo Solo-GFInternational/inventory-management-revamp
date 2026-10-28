@@ -4,10 +4,20 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Mail\UserAccountCredentials;
 use App\Models\User;
+use App\Support\EmailBranding;
+use App\Support\TemporaryPassword;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\AbstractTransport;
 use Tests\TestCase;
 
 class UsersTest extends TestCase
@@ -74,27 +84,95 @@ class UsersTest extends TestCase
             ->assertDontSee($admin->email);
     }
 
-    public function test_admin_creates_a_user_with_role_and_password()
+    /**
+     * Creates a user through the form and returns the temporary password
+     * that was emailed to them (Mail must be faked).
+     */
+    private function createThroughForm(User $admin, array $fields): string
     {
+        $this->actingAs($admin)->post(route('users.store'), $fields)
+            ->assertRedirect(route('users.index'))
+            ->assertSessionHasNoErrors();
+
+        $mails = Mail::queued(UserAccountCredentials::class, fn (UserAccountCredentials $mail) => $mail->hasTo($fields['email']));
+        $this->assertCount(1, $mails);
+
+        return $mails->first()->password;
+    }
+
+    public function test_create_modal_has_no_password_fields_and_says_one_is_emailed()
+    {
+        $html = $this->actingAs($this->makeUser('admin'))->get(route('users.index'))->assertOk()->getContent();
+
+        $start = strpos($html, 'id="create-user-form"');
+        $create = substr($html, $start, strpos($html, '</form>', $start) - $start);
+
+        $this->assertStringNotContainsString('name="password"', $create);
+        $this->assertStringNotContainsString('name="password_confirmation"', $create);
+        $this->assertStringContainsString('temporary password', $create);
+    }
+
+    public function test_admin_creates_a_user_and_their_temporary_password_is_emailed()
+    {
+        Mail::fake();
         $admin = $this->makeUser('admin');
 
-        $this->actingAs($admin)->post(route('users.store'), [
+        $password = $this->createThroughForm($admin, [
             'name' => 'New Admin',
             'email' => 'new.admin@example.com',
             'role' => 'admin',
-            'password' => 'secret-pass',
-            'password_confirmation' => 'secret-pass',
-        ])->assertRedirect(route('users.index'))->assertSessionHasNoErrors();
+        ]);
 
         $created = User::where('email', 'new.admin@example.com')->firstOrFail();
         $this->assertSame('admin', $created->role);
         $this->assertTrue($created->active_yn);
-        $this->assertTrue(Hash::check('secret-pass', $created->password));
+        $this->assertGreaterThanOrEqual(TemporaryPassword::MIN_LENGTH, strlen($password));
+        $this->assertTrue(Hash::check($password, $created->password));
         $this->assertEquals($admin->id, $created->created_by);
+
+        $this->assertSame('Account created — sign-in details emailed to new.admin@example.com.', session('status'));
+        $this->assertStringNotContainsString($password, serialize(session()->all()));
+
+        // The new account can sign in with the emailed password.
+        $this->app['auth']->forgetGuards();
+        $this->post('/login', ['email' => 'new.admin@example.com', 'password' => $password])
+            ->assertRedirect(route('dashboard'));
     }
 
-    public function test_create_validates_password_and_duplicate_active_email()
+    public function test_the_credentials_email_has_the_sign_in_details()
     {
+        $user = $this->makeUser('user', ['name' => 'Jane Staff', 'email' => 'jane@example.com']);
+
+        $mail = new UserAccountCredentials($user, 'Ab3-xyzPQ7');
+
+        $mail->assertHasSubject('Your Inventory Management System account');
+        $mail->assertSeeInHtml('Inventory Management System');
+        $mail->assertSeeInHtml('jane@example.com');
+        $mail->assertSeeInHtml('Ab3-xyzPQ7');
+        $mail->assertSeeInHtml(route('login'));
+        $mail->assertSeeInHtml('Your profile');
+        $mail->assertSeeInHtml('cid:'.EmailBranding::LOGO_CID, false);
+        $this->assertInstanceOf(ShouldBeEncrypted::class, $mail);
+
+        $reactivated = new UserAccountCredentials($user, 'Ab3-xyzPQ7', reactivated: true);
+        $reactivated->assertHasSubject('Your Inventory Management System account has been reactivated');
+    }
+
+    public function test_sent_credentials_email_embeds_the_logo()
+    {
+        $user = $this->makeUser('user');
+
+        Mail::to($user)->send(new UserAccountCredentials($user, 'Ab3-xyzPQ7'));
+
+        $message = app('mailer')->getSymfonyTransport()->messages()->last()->getOriginalMessage();
+        $logo = collect($message->getAttachments())->first(fn ($part) => $part->hasContentId() && $part->getContentId() === EmailBranding::LOGO_CID);
+
+        $this->assertNotNull($logo);
+    }
+
+    public function test_create_validates_role_and_duplicate_active_email()
+    {
+        Mail::fake();
         $admin = $this->makeUser('admin');
         $existing = $this->makeUser('user');
 
@@ -102,33 +180,95 @@ class UsersTest extends TestCase
             '_modal' => 'create-user',
             'name' => 'Dup',
             'email' => $existing->email,
-            'role' => 'user',
-            'password' => 'short',
-            'password_confirmation' => 'different',
-        ])->assertSessionHasErrors(['email', 'password']);
+            'role' => 'superuser',
+        ])->assertSessionHasErrors(['email', 'role'])->assertSessionDoesntHaveErrors('password');
 
         $this->assertSame(1, User::where('email', $existing->email)->count());
+        Mail::assertNothingQueued();
     }
 
-    public function test_creating_with_a_deactivated_email_reactivates_that_account()
+    public function test_creating_with_a_deactivated_email_reactivates_that_account_with_a_new_password()
     {
+        Mail::fake();
         $admin = $this->makeUser('admin');
         $gone = $this->deactivate($this->makeUser('user', ['name' => 'Old Name']));
 
-        $this->actingAs($admin)->post(route('users.store'), [
+        $password = $this->createThroughForm($admin, [
             'name' => 'New Name',
             'email' => $gone->email,
             'role' => 'admin',
-            'password' => 'brand-new-pass',
-            'password_confirmation' => 'brand-new-pass',
-        ])->assertRedirect(route('users.index'))->assertSessionHasNoErrors();
+        ]);
+
+        Mail::assertQueued(UserAccountCredentials::class, fn (UserAccountCredentials $mail) => $mail->reactivated);
 
         $this->assertSame(1, User::where('email', $gone->email)->count());
         $gone->refresh();
         $this->assertTrue($gone->active_yn);
         $this->assertSame('New Name', $gone->name);
         $this->assertSame('admin', $gone->role);
-        $this->assertTrue(Hash::check('brand-new-pass', $gone->password));
+        $this->assertTrue(Hash::check($password, $gone->password));
+        $this->assertFalse(Hash::check('password', $gone->password));
+        $this->assertSame('User reactivated', session('status_title'));
+    }
+
+    public function test_a_failed_email_keeps_the_account_and_flashes_an_error()
+    {
+        Exceptions::fake();
+
+        // An SMTP server that refuses every message.
+        Mail::extend('broken', fn () => new class extends AbstractTransport
+        {
+            protected function doSend(SentMessage $message): void
+            {
+                throw new TransportException('Connection refused');
+            }
+
+            public function __toString(): string
+            {
+                return 'broken';
+            }
+        });
+        config(['mail.mailers.broken' => ['transport' => 'broken'], 'mail.default' => 'broken']);
+
+        $admin = $this->makeUser('admin');
+
+        $this->actingAs($admin)->post(route('users.store'), [
+            'name' => 'No Mail',
+            'email' => 'no.mail@example.com',
+            'role' => 'user',
+        ])->assertRedirect(route('users.index'))
+            ->assertSessionHasNoErrors()
+            ->assertSessionMissing('status')
+            ->assertSessionHas('error', fn ($message) => str_contains($message, 'could not be sent to no.mail@example.com'));
+
+        $created = User::where('email', 'no.mail@example.com')->firstOrFail();
+        $this->assertTrue($created->active_yn);
+        Exceptions::assertReported(TransportException::class);
+
+        $this->assertTrue(Activity::where('subject_id', $created->id)->where('event', 'credentials email failed')->exists());
+        $this->assertFalse(Activity::where('event', 'credentials emailed')->exists());
+    }
+
+    public function test_the_temporary_password_never_reaches_the_activity_log()
+    {
+        Mail::fake();
+        $admin = $this->makeUser('admin');
+        $gone = $this->deactivate($this->makeUser('user'));
+
+        $created = $this->createThroughForm($admin, ['name' => 'Logged', 'email' => 'logged@example.com', 'role' => 'user']);
+        $reactivated = $this->createThroughForm($admin, ['name' => 'Back', 'email' => $gone->email, 'role' => 'user']);
+
+        $this->assertTrue(Activity::where('event', 'credentials emailed')->count() === 2);
+
+        foreach (Activity::all() as $entry) {
+            $logged = json_encode($entry->properties).$entry->description;
+
+            foreach ([$created, $reactivated] as $password) {
+                $this->assertStringNotContainsString($password, $logged);
+            }
+            $this->assertArrayNotHasKey('password', (array) data_get($entry->properties, 'attributes', []));
+            $this->assertArrayNotHasKey('password', (array) data_get($entry->properties, 'old', []));
+        }
     }
 
     public function test_admin_edits_a_user()

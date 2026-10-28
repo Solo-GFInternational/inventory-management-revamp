@@ -2,15 +2,23 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\UserAccountCredentials;
 use App\Models\User;
+use App\Support\AuditTrail;
+use App\Support\TemporaryPassword;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Throwable;
 
 /**
  * Settings > Users. Create and edit happen in modals on the list page.
+ * Creating a user (or reusing a deactivated account's email, which
+ * reactivates it) generates a temporary password and emails it to them
+ * (App\Mail\UserAccountCredentials); the admin never sees it.
  * Accounts are never deleted: "delete" deactivates (active_yn = false) and
  * reactivate restores them. Deactivated accounts cannot sign in.
  */
@@ -54,39 +62,78 @@ class UserController extends Controller
             'email' => ['required', 'string', 'email', 'max:255',
                 Rule::unique('users', 'email')->where('active_yn', true)],
             'role' => ['required', Rule::in(array_keys(self::ROLES))],
-            'password' => ['required', 'string', 'confirmed', 'min:8'],
         ], [
             'email.unique' => 'An active account already uses this email.',
         ]);
+
+        // Random, and only ever in the sign-in email to the person themselves:
+        // never typed or seen by the admin, never flashed or logged.
+        $password = TemporaryPassword::generate();
 
         $attributes = [
             'name' => $data['name'],
             'email' => $data['email'],
             'role' => $data['role'],
-            'password' => Hash::make($data['password']),
+            'password' => Hash::make($password),
         ];
 
         // The email column is unique across all rows, so adding a deactivated
         // person back restores their account rather than failing or duplicating.
-        $existing = User::where('email', $data['email'])->where('active_yn', false)->first();
+        $user = User::where('email', $data['email'])->where('active_yn', false)->first();
+        $reactivated = $user !== null;
 
-        if ($existing) {
-            $existing->fill($attributes);
-            $existing->active_yn = true;
-            $existing->save();
+        if ($reactivated) {
+            $user->fill($attributes);
+            $user->active_yn = true;
+            $user->save();
+        } else {
+            $user = User::create($attributes);
+        }
 
+        $done = $reactivated ? 'Account reactivated' : 'Account created';
+
+        // The account is kept even when the email fails; the admin is told so
+        // they can deactivate and add it again (a new password is emailed) or
+        // set one with Edit and pass it on themselves.
+        if (! $this->emailCredentials($user, $password, $reactivated)) {
             return redirect()->route('users.index')->with([
-                'status_title' => 'User reactivated',
-                'status' => "{$existing->name}'s deactivated account has been reactivated with the details and password you entered.",
+                'status_title' => 'Sign-in email not sent',
+                'error' => "{$done} for {$user->name}, but the email with their sign-in details could not be sent to {$user->email}. "
+                    .'Deactivate the account and add it again to send a new password, or set a password with Edit and give it to them another way.',
             ]);
         }
 
-        $user = User::create($attributes);
-
         return redirect()->route('users.index')->with([
-            'status_title' => 'User created',
-            'status' => "{$user->name} can now sign in with {$user->email} and the password you set.",
+            'status_title' => $reactivated ? 'User reactivated' : 'User created',
+            'status' => "{$done} — sign-in details emailed to {$user->email}.",
         ]);
+    }
+
+    /**
+     * Queues the sign-in details email (sent during the request while
+     * QUEUE_CONNECTION=sync) and notes it on the audit trail. Returns false,
+     * after reporting the error, when sending failed (e.g. an SMTP error).
+     * With a real queue a later failure lands in failed_jobs instead.
+     */
+    private function emailCredentials(User $user, string $password, bool $reactivated): bool
+    {
+        try {
+            Mail::to($user)->queue(new UserAccountCredentials($user, $password, $reactivated));
+        } catch (Throwable $e) {
+            report($e);
+
+            AuditTrail::write(fn () => activity('user')->performedOn($user)
+                ->event('credentials email failed')
+                ->log('Sign-in details email could not be sent'));
+
+            return false;
+        }
+
+        AuditTrail::write(fn () => activity('user')->performedOn($user)
+            ->event('credentials emailed')
+            ->log('Sign-in details emailed'));
+
+        return true;
     }
 
     public function update(Request $request, User $user): RedirectResponse
