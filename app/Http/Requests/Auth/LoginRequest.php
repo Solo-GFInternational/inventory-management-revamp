@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
+use Illuminate\Contracts\Validation\Rule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -11,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class LoginRequest extends FormRequest
 {
+    public const DEACTIVATED_MESSAGE = 'This account has been deactivated. Ask an administrator to reactivate it.';
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -22,7 +26,7 @@ class LoginRequest extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
-     * @return array<string, \Illuminate\Contracts\Validation\Rule|array|string>
+     * @return array<string, Rule|array|string>
      */
     public function rules(): array
     {
@@ -35,17 +39,31 @@ class LoginRequest extends FormRequest
     /**
      * Attempt to authenticate the request's credentials.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function authenticate(): void
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        // Only once the password is right do we say the account is deactivated,
+        // so the message never reveals anything about an email on its own.
+        $deactivated = false;
+
+        $signedIn = Auth::attemptWhen(
+            $this->only('email', 'password'),
+            function (User $user) use (&$deactivated) {
+                $deactivated = ! $user->isActive();
+
+                return ! $deactivated;
+            },
+            $this->boolean('remember'),
+        );
+
+        if (! $signedIn) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'email' => $deactivated ? self::DEACTIVATED_MESSAGE : trans('auth.failed'),
             ]);
         }
 
@@ -55,7 +73,7 @@ class LoginRequest extends FormRequest
     /**
      * Ensure the login request is not rate limited.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function ensureIsNotRateLimited(): void
     {

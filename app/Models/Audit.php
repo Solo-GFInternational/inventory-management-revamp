@@ -2,14 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+#[Fillable(['user_id', 'action', 'inventory_id', 'changes'])]
 class Audit extends Model
 {
     use HasFactory;
-
-    protected $fillable = ['user_id', 'action', 'inventory_id', 'changes'];
 
     public function user()
     {

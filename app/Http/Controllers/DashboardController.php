@@ -2,38 +2,60 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use App\Models\Inventory;
-use DB;
+use App\Models\Stock;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request): View
     {
-        $site = $request->site;
-        $department = $request->department;
+        $site = $request->string('site')->trim()->toString() ?: null;
+        $department = $request->string('department')->trim()->toString() ?: null;
 
-        $query = Inventory::query();
+        // Stat cards. Deactivated rows never count; "given out" and "issued"
+        // only count approved issues (pending ones haven't left the shelf).
+        $inStock = (int) Stock::active()->sum('qty');
 
-        if ($site) {
-            $query->where('site', $site);
-        }
+        $givenOut = (int) Inventory::active()
+            ->where('status', 'approved')
+            ->where('condition', 'new')
+            ->sum('qty');
 
-        if ($department) {
-            $query->where('department', $department);
-        }
+        $pendingCount = Inventory::active()->where('status', 'pending')->count();
 
-        // Item-wise total quantity
-        $items = $query
+        $issuedThisMonth = (int) Inventory::active()
+            ->where('status', 'approved')
+            ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->sum('qty');
+
+        // Item-wise total quantity issued (approved), filterable by site and department.
+        $items = Inventory::active()
+            ->where('status', 'approved')
+            ->when($site, fn ($query) => $query->where('site', $site))
+            ->when($department, fn ($query) => $query->where('department', $department))
             ->select('item', DB::raw('SUM(qty) as total_qty'))
             ->groupBy('item')
             ->orderBy('item')
             ->get();
 
-        // Dropdown data
-        $sites = Inventory::select('site')->distinct()->orderBy('site')->pluck('site');
-        $departments = Inventory::select('department')->distinct()->orderBy('department')->pluck('department');
+        // Filter dropdowns, from active rows only.
+        $sites = Inventory::active()->whereNotNull('site')->where('site', '<>', '')
+            ->distinct()->orderBy('site')->pluck('site');
+        $departments = Inventory::active()->whereNotNull('department')->where('department', '<>', '')
+            ->distinct()->orderBy('department')->pluck('department');
 
-        return view('dashboard', compact('items', 'sites', 'departments', 'site', 'department'));
+        $recent = Inventory::active()
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->limit(5)
+            ->get();
+
+        return view('dashboard', compact(
+            'inStock', 'givenOut', 'pendingCount', 'issuedThisMonth',
+            'items', 'sites', 'departments', 'site', 'department', 'recent',
+        ));
     }
 }

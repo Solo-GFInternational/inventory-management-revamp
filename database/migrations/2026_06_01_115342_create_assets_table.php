@@ -11,23 +11,20 @@ return new class extends Migration
      *
      * @return void
      */
-    
-public function up()
-{
-    Schema::create('assets', function (Blueprint $table) {
-        $table->id();
-        $table->string('asset_tag')->nullable();
-        $table->string('name');
-        $table->string('serial_number')->nullable();
-        $table->string('status')->default('available');
-        $table->timestamps();
-    });
-}
-
+    public function up()
+    {
+        Schema::create('assets', function (Blueprint $table) {
+            $table->id();
+            $table->string('asset_tag')->nullable();
+            $table->string('name');
+            $table->string('serial_number')->nullable();
+            $table->string('status')->default('available');
+            $table->timestamps();
+        });
+    }
 
     /**
      * Reverse the migrations.
-     *
      */
     public function down()
     {

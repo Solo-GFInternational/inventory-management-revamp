@@ -2,14 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasStandardColumns;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Inventory extends Model
-{
-    use HasFactory;
-
-    protected $fillable = [
+#[Fillable([
     'date',
     'qty',
     'item',
@@ -22,26 +20,41 @@ class Inventory extends Model
     'site',
     'edited_by',
     'approval_type',
-];
-
-    protected $casts = [
-    'change_log' => 'array',
-];
-
-public function giver()
+])]
+class Inventory extends Model
 {
-    return $this->belongsTo(User::class, 'given_by');
-}
+    use HasFactory, HasStandardColumns;
 
-public function editor()
-{
-    return $this->belongsTo(User::class, 'edited_by');
-}
-public function given_by_user()
-{
-    return $this->belongsTo(User::class, 'given_by');
-}
+    public function giver()
+    {
+        return $this->belongsTo(User::class, 'given_by');
+    }
 
+    public function editor()
+    {
+        return $this->belongsTo(User::class, 'edited_by');
+    }
 
+    public function given_by_user()
+    {
+        return $this->belongsTo(User::class, 'given_by');
+    }
 
+    /** Rows waiting for an administrator to approve them (new or edited). */
+    public function scopePending($query)
+    {
+        return $query->where($this->qualifyColumn('status'), 'pending');
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status === 'pending';
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'change_log' => 'array',
+        ];
+    }
 }

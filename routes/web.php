@@ -1,97 +1,56 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\InventoryController;
-use App\Http\Controllers\UserController;
-use App\Http\Controllers\StockController;
+use App\Http\Controllers\AuditTrailController;
 use App\Http\Controllers\DashboardController;
-
-/*
-|--------------------------------------------------------------------------
-| Web Routes
-|--------------------------------------------------------------------------
-|
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
-|
-*/
+use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\StockController;
+use App\Http\Controllers\UserController;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect()->route('login');
 });
 
-Route::get('/dashboard', [DashboardController::class, 'index'])
-    ->middleware(['auth'])
-    ->name('dashboard');
-
-Route::get('/admin-only', function () {
-    return 'Admin Area';
-})->middleware(['auth', 'role:admin']);
-
-Route::get('/user-only', function () {
-    return 'User Area';
-})->middleware(['auth', 'role:user']);
-
+// Any signed-in user
 Route::middleware('auth')->group(function () {
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-    // View inventory
+
+    // Create and edit happen in modals on the list page. Non-admin
+    // additions and edits go into the approval queue.
+    Route::get('/inventory/download-pdf', [InventoryController::class, 'downloadPdf'])->name('inventory.download.pdf');
     Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
-
-    // Add inventory
-    Route::get('/inventory/create', [InventoryController::class, 'create'])->name('inventory.create');
     Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
-
-    // Edit inventory
-    Route::get('/inventory/{inventory}/edit', [InventoryController::class, 'edit'])->name('inventory.edit');
     Route::put('/inventory/{inventory}', [InventoryController::class, 'update'])->name('inventory.update');
 
-    // Delete inventory
-    Route::delete('/inventory/{inventory}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
-
-    
-});
-
-Route::middleware(['auth'])->group(function () {
-    Route::resource('inventory', InventoryController::class)->except(['show']);
-
-    Route::patch('/inventory/{inventory}/approve',
-        [InventoryController::class, 'approve']
-    )->name('inventory.approve');
-    
-    
-});
-
-
-// Admin-only routes
-Route::middleware(['auth', 'role:admin'])->group(function () {
-    Route::get('/inventory/pending', [InventoryController::class, 'pending'])->name('inventory.pending');
-    Route::post('/inventory/{inventory}/approve', [InventoryController::class, 'approve'])->name('inventory.approve');
-    Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
-    Route::post('/users', [UserController::class, 'store'])->name('users.store');
-    Route::get('/users', [UserController::class, 'index'])->name('users.index');
-    Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
-    Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
-    Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
-
-    
-});
-
-
-Route::middleware(['auth'])->group(function () {
     Route::get('/stock', [StockController::class, 'index'])->name('stock.index');
-    Route::get('/stock/create', [StockController::class, 'create'])->name('stock.create');
     Route::post('/stock', [StockController::class, 'store'])->name('stock.store');
 });
 
+// Admin only
+Route::middleware(['auth', 'role:admin'])->group(function () {
+    Route::get('/inventory/pending', [InventoryController::class, 'pending'])->name('inventory.pending');
+    // The inventory list and the approvals page both post here.
+    Route::match(['post', 'patch'], '/inventory/{inventory}/approve', [InventoryController::class, 'approve'])->name('inventory.approve');
+    // Deactivates (active_yn = false) rather than deleting the row.
+    Route::delete('/inventory/{inventory}', [InventoryController::class, 'destroy'])->name('inventory.destroy');
 
-Route::get('/inventory/download-pdf',
-    [InventoryController::class, 'downloadPdf']
-)->name('inventory.download.pdf');
+    // Correcting a stock count.
+    Route::put('/stock/{stock}', [StockController::class, 'update'])->name('stock.update');
 
-
+    // Settings: Users and Audit Trail tabs. Route names are stable; only the URIs live under /settings.
+    Route::redirect('/settings', '/settings/users')->name('settings');
+    Route::get('/settings/users', [UserController::class, 'index'])->name('users.index');
+    Route::post('/settings/users', [UserController::class, 'store'])->name('users.store');
+    Route::put('/settings/users/{user}', [UserController::class, 'update'])->name('users.update');
+    // Deactivates the account; reactivate restores it.
+    Route::delete('/settings/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+    Route::patch('/settings/users/{user}/reactivate', [UserController::class, 'reactivate'])->name('users.reactivate');
+    Route::get('/settings/audit-trail', [AuditTrailController::class, 'index'])->name('audit.index');
+});
 
 require __DIR__.'/auth.php';

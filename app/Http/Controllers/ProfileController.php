@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Http\Requests\ProfileUpdateRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\View\View;
 
@@ -34,27 +33,17 @@ class ProfileController extends Controller
 
         $request->user()->save();
 
-        return Redirect::route('profile.edit')->with('status', 'profile-updated');
+        return Redirect::route('profile.edit')->with('status', 'Your profile has been updated.');
     }
 
     /**
-     * Delete the user's account.
+     * Self-service account deletion is switched off: accounts are created,
+     * deactivated and reactivated by an administrator (Settings → Users),
+     * and rows are never hard-deleted. The route is kept only so old links
+     * or forms get a clear refusal instead of deleting anything.
      */
-    public function destroy(Request $request): RedirectResponse
+    public function destroy(): never
     {
-        $request->validateWithBag('userDeletion', [
-            'password' => ['required', 'current-password'],
-        ]);
-
-        $user = $request->user();
-
-        Auth::logout();
-
-        $user->delete();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
-
-        return Redirect::to('/');
+        abort(403, 'Accounts are managed by an administrator.');
     }
 }
