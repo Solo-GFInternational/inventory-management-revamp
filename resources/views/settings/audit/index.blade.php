@@ -17,7 +17,7 @@
     <x-settings-tabs active="audit" />
 
     <x-card title="Audit trail" icon="clipboard-document-list"
-            subtitle="Read-only. Signing in and out, pages opened and every change to inventory, stock, items and users, newest first.">
+            subtitle="Read-only. Signing in and out, pages opened and every change to inventory, stock, types and users, newest first.">
         {{-- Table toolbar: filters above the table, at the right. --}}
         <form method="GET" class="flex flex-wrap items-end justify-end gap-3 px-6 py-4">
             <select name="user" aria-label="User" class="gf-input select-arrow w-full sm:w-56">
@@ -62,7 +62,7 @@
                 <tbody>
                     @forelse ($entries as $entry)
                         @php
-                            $changes = AuditTrail::type($entry) === AuditTrail::TYPE_CHANGES ? AuditTrail::changes($entry, $userNames) : [];
+                            $changes = AuditTrail::type($entry) === AuditTrail::TYPE_CHANGES ? AuditTrail::changes($entry, $names) : [];
                             $hasOld = collect($changes)->contains(fn ($change) => $change['old'] !== null);
                             $hasNew = collect($changes)->contains(fn ($change) => $change['new'] !== null);
                         @endphp
@@ -104,7 +104,7 @@
                                     {{ AuditTrail::action($entry) }}
                                 @endif
                             </td>
-                            <td class="text-gray-500">{{ AuditTrail::about($entry) ?? '—' }}</td>
+                            <td class="text-gray-500">{{ AuditTrail::about($entry, $names) ?? '—' }}</td>
                             {{-- Recorded from the request; none for entries made outside one (seeders, commands). --}}
                             <td class="font-mono text-xs whitespace-nowrap text-gray-500">{{ AuditTrail::ip($entry) ?? '—' }}</td>
                         </tr>

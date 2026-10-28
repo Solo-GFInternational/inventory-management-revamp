@@ -121,7 +121,7 @@
             <x-form-errors />
         @endif
         <form id="create-user-form" method="POST" action="{{ route('users.store') }}"
-              data-processing="Creating the account…" data-processing-text="Emailing their sign-in details — this can take a moment.">
+              data-processing="Creating the account…" data-processing-text="Emailing their sign-in details — this can take a moment." class="gf-modal-fields">
             @csrf
             <input type="hidden" name="_modal" value="create-user">
             @include('settings.users._form', ['targetUser' => null, 'prefix' => 'create-user-', 'useOld' => $reopen === 'create-user'])
@@ -141,7 +141,7 @@
                 <x-form-errors />
             @endif
             <form id="{{ $modalId }}-form" method="POST" action="{{ route('users.update', $user) }}"
-                  data-processing="Saving changes…">
+                  data-processing="Saving changes…" class="gf-modal-fields">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">

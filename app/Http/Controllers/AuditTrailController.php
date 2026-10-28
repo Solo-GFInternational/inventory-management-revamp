@@ -17,7 +17,8 @@ use Throwable;
  * Administrators only (see routes/web.php).
  *
  * Loading: one query for the entries, one for the people who did them, one
- * per kind of record on the page and one for user names in the changes.
+ * per kind of record on the page, and one each for the people, stock items
+ * and types the entries mention by id (AuditTrail::names()).
  */
 class AuditTrailController extends Controller
 {
@@ -67,7 +68,7 @@ class AuditTrailController extends Controller
                 'until' => $filters['until']?->format('Y-m-d'),
             ],
             'hasFilters' => $filters['user'] !== '' || $filters['type'] !== '' || $filters['from'] || $filters['until'],
-            'userNames' => AuditTrail::userNames($entries->items()),
+            'names' => AuditTrail::names($entries->items()),
         ]);
     }
 

@@ -3,8 +3,8 @@
 namespace App\Support;
 
 use App\Models\Inventory;
-use App\Models\Item;
 use App\Models\Stock;
+use App\Models\Type;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -27,7 +27,9 @@ use Throwable;
  *                        during a web request, as properties['ip'] (see
  *                        AuditTrailEntry, the activity model)
  *   - who() / action() / about() / ip() / type() / changes()   the list's
- *                        plain-English columns
+ *                        plain-English columns; names() looks up, in one
+ *                        query per table, the people, stock items and types
+ *                        that a page of entries mentions by id
  *
  * Record changes are logged by HasStandardColumns (log name = the model,
  * e.g. "inventory"); anything else written with activity() shows its own
@@ -68,6 +70,7 @@ class AuditTrail
         'stock.index' => 'Stock',
         'users.index' => 'Settings – Users',
         'audit.index' => 'Settings – Audit trail',
+        'types.index' => 'Settings – Types',
     ];
 
     /** Friendly names for logged columns, in the order the details list them. */
@@ -75,16 +78,19 @@ class AuditTrail
         'name' => 'Name',
         'email' => 'Email',
         'role' => 'Role',
+        'type_group' => 'Group',
+        'type_name' => 'Name',
+        'sort_order' => 'Order',
         'date' => 'Date',
+        'stock_id' => 'Item',
         'item' => 'Item',
-        'item_id' => 'Item',
         'qty' => 'Quantity',
         'serial_number' => 'Serial number',
         'condition' => 'Condition',
         'taken_by' => 'Taken by',
         'given_by' => 'Given by',
-        'department' => 'Department',
-        'site' => 'Site',
+        'department_id' => 'Department',
+        'site_id' => 'Site',
         'status' => 'Status',
         'approval_type' => 'Approval type',
         'edited_by' => 'Edited by',
@@ -92,8 +98,22 @@ class AuditTrail
         'active_yn' => 'Active',
     ];
 
-    /** Columns holding a users.id, shown as the person's name. */
-    private const USER_FIELDS = ['given_by', 'edited_by', 'created_by', 'updated_by'];
+    /**
+     * Columns holding an id, by the names() lookup that turns it into a
+     * name: security.users name, inventory.stocks item, ref.types type_name.
+     */
+    private const ID_FIELDS = [
+        'given_by' => 'users',
+        'edited_by' => 'users',
+        'created_by' => 'users',
+        'updated_by' => 'users',
+        'stock_id' => 'stocks',
+        'department_id' => 'types',
+        'site_id' => 'types',
+    ];
+
+    /** What an id is called when names() didn't find it: "Item #4". */
+    private const MISSING_NAMES = ['users' => 'User', 'stocks' => 'Item', 'types' => 'Type'];
 
     /** Model events worded as "<Verb> <record type>". */
     private const MODEL_EVENTS = ['created', 'updated', 'deleted', 'deactivated', 'reactivated'];
@@ -279,15 +299,63 @@ class AuditTrail
 
     /**
      * What it was about: "Inventory #12 – Laptop bag for Jane", a stock
-     * item, a person's name. From the record itself, or from the logged
-     * values when the record no longer exists. Null when there's no record.
+     * item, "Department – Finance", a person's name. From the record itself,
+     * or from the logged values when the record no longer exists. Null when
+     * there's no record.
+     *
+     * @param  array<string, array<int|string, string>>|null  $names  from names(); looked up for this entry alone when null
      */
-    public static function about(Activity $activity): ?string
+    public static function about(Activity $activity, ?array $names = null): ?string
     {
         if ($activity->subject_type === null || $activity->subject_id === null) {
             return null;
         }
 
+        $values = static::values($activity);
+        $id = $activity->subject_id;
+
+        return match ($activity->subject_type) {
+            Inventory::class => 'Inventory #'.$id.static::join(' – ', static::inventoryLabel($activity, $values, $names)),
+            Stock::class => 'Stock #'.$id.static::join(' – ', $values->get('item')),
+            Type::class => filled($values->get('type_name'))
+                ? static::formatValue('type_group', $values->get('type_group')).static::join(' – ', $values->get('type_name'))
+                : 'Type #'.$id,
+            User::class => filled($values->get('name')) ? (string) $values->get('name') : 'User #'.$id,
+            default => static::recordType($activity->subject_type).' #'.$id,
+        };
+    }
+
+    /**
+     * "Laptop bag for Jane": the stock item's name (by stock_id, or the item
+     * text that entries from before inventory.stocks ids logged) and who
+     * took it.
+     *
+     * @param  Collection<string, mixed>  $values
+     * @param  array<string, array<int|string, string>>|null  $names
+     */
+    private static function inventoryLabel(Activity $activity, Collection $values, ?array $names): string
+    {
+        $stockId = $values->get('stock_id');
+        $item = $values->get('item');
+
+        if (is_numeric($stockId)) {
+            $names ??= static::names([$activity]);
+            $item = $names['stocks'][$stockId] ?? $item ?? 'Item #'.$stockId;
+        }
+
+        $takenBy = $values->get('taken_by');
+
+        return trim((string) $item.(filled($takenBy) ? ' for '.$takenBy : ''));
+    }
+
+    /**
+     * The record's values: the logged old and new values, overlaid with the
+     * record's current ones while it still exists.
+     *
+     * @return Collection<string, mixed>
+     */
+    private static function values(Activity $activity): Collection
+    {
         $values = collect(data_get($activity->properties, 'old', []))
             ->merge(data_get($activity->properties, 'attributes', []));
 
@@ -295,15 +363,7 @@ class AuditTrail
             $values = $values->merge($activity->subject->getAttributes());
         }
 
-        $id = $activity->subject_id;
-
-        return match ($activity->subject_type) {
-            Inventory::class => 'Inventory #'.$id.static::join(' – ', trim($values->get('item').(filled($values->get('taken_by')) ? ' for '.$values->get('taken_by') : ''))),
-            Stock::class => 'Stock #'.$id.static::join(' – ', $values->get('item')),
-            Item::class => 'Item #'.$id.static::join(' – ', $values->get('name')),
-            User::class => filled($values->get('name')) ? (string) $values->get('name') : 'User #'.$id,
-            default => static::recordType($activity->subject_type).' #'.$id,
-        };
+        return $values;
     }
 
     /**
@@ -312,11 +372,12 @@ class AuditTrail
      * record lists its values (old null); a deleted one its last values
      * (new null). Empty for anything that isn't a record change.
      *
-     * @param  array<int|string, string>  $userNames  users.id => name, from userNames()
+     * @param  array<string, array<int|string, string>>|null  $names  from names(); looked up for this entry alone when null
      * @return list<array{field: string, old: ?string, new: ?string}>
      */
-    public static function changes(Activity $activity, array $userNames = []): array
+    public static function changes(Activity $activity, ?array $names = null): array
     {
+        $names ??= static::names([$activity]);
         $new = (array) data_get($activity->properties, 'attributes', []);
         $old = (array) data_get($activity->properties, 'old', []);
         $fields = array_unique(array_merge(array_keys($new), array_keys($old)));
@@ -334,8 +395,8 @@ class AuditTrail
         foreach ($fields as $field) {
             $rows[] = [
                 'field' => static::fieldLabel($field),
-                'old' => array_key_exists($field, $old) ? static::formatValue($field, $old[$field], $userNames) : null,
-                'new' => array_key_exists($field, $new) ? static::formatValue($field, $new[$field], $userNames) : null,
+                'old' => array_key_exists($field, $old) ? static::formatValue($field, $old[$field], $names) : null,
+                'new' => array_key_exists($field, $new) ? static::formatValue($field, $new[$field], $names) : null,
             ];
         }
 
@@ -343,26 +404,53 @@ class AuditTrail
     }
 
     /**
-     * Names for every user id the given entries' changes mention (given_by,
-     * edited_by, ...), in one query.
+     * Names for every id the given entries mention: people (given_by,
+     * edited_by, ...), stock items (stock_id) and types (department_id,
+     * site_id), from the logged changes and, for inventory, the record
+     * itself (for about()). One query per table, deactivated rows included:
+     * ['users' => [id => name], 'stocks' => [id => item], 'types' => [id => type_name]].
      *
      * @param  iterable<Activity>  $entries
-     * @return array<int|string, string>
+     * @return array<string, array<int|string, string>>
      */
-    public static function userNames(iterable $entries): array
+    public static function names(iterable $entries): array
     {
-        $ids = collect($entries)
-            ->flatMap(fn (Activity $activity) => collect(['attributes', 'old'])
-                ->flatMap(fn (string $key) => collect((array) data_get($activity->properties, $key, []))->only(self::USER_FIELDS)->values()))
-            ->filter(fn ($id) => is_numeric($id))
-            ->unique()
-            ->values();
+        $ids = ['users' => [], 'stocks' => [], 'types' => []];
 
-        if ($ids->isEmpty()) {
-            return [];
+        foreach ($entries as $activity) {
+            $logged = [
+                (array) data_get($activity->properties, 'attributes', []),
+                (array) data_get($activity->properties, 'old', []),
+            ];
+
+            if ($activity->subject_type === Inventory::class) {
+                $logged[] = static::values($activity)->only('stock_id')->all();
+            }
+
+            foreach ($logged as $values) {
+                foreach (array_intersect_key($values, self::ID_FIELDS) as $field => $id) {
+                    if (is_numeric($id)) {
+                        $ids[self::ID_FIELDS[$field]][(int) $id] = true;
+                    }
+                }
+            }
         }
 
-        return User::query()->whereIn('id', $ids->all())->pluck('name', 'id')->all();
+        $lookups = [
+            'users' => [User::class, 'name'],
+            'stocks' => [Stock::class, 'item'],
+            'types' => [Type::class, 'type_name'],
+        ];
+
+        $names = [];
+
+        foreach ($lookups as $key => [$model, $column]) {
+            $names[$key] = $ids[$key] === []
+                ? []
+                : $model::query()->whereKey(array_keys($ids[$key]))->pluck($column, 'id')->all();
+        }
+
+        return $names;
     }
 
     public static function fieldLabel(string $field): string
@@ -371,12 +459,13 @@ class AuditTrail
     }
 
     /**
-     * A logged value as text: booleans as Yes / No, user ids as names,
-     * timestamps as d/m/Y H:i, empty as null (shown as "—").
+     * A logged value as text: booleans as Yes / No, ids as names (user,
+     * stock item, department or site, from names()), a type's group as its
+     * label, timestamps as d/m/Y H:i, empty as null (shown as "—").
      *
-     * @param  array<int|string, string>  $userNames
+     * @param  array<string, array<int|string, string>>  $names  from names()
      */
-    public static function formatValue(string $field, mixed $value, array $userNames = []): ?string
+    public static function formatValue(string $field, mixed $value, array $names = []): ?string
     {
         if ($value === null || $value === '') {
             return null;
@@ -386,8 +475,14 @@ class AuditTrail
             return filter_var($value, FILTER_VALIDATE_BOOLEAN) ? 'Yes' : 'No';
         }
 
-        if (in_array($field, self::USER_FIELDS, true) && is_numeric($value)) {
-            return $userNames[$value] ?? 'User #'.$value;
+        if (isset(self::ID_FIELDS[$field]) && is_numeric($value)) {
+            $lookup = self::ID_FIELDS[$field];
+
+            return $names[$lookup][$value] ?? self::MISSING_NAMES[$lookup].' #'.$value;
+        }
+
+        if ($field === 'type_group' && is_string($value)) {
+            return Type::GROUPS[$value] ?? $value;
         }
 
         if (is_array($value)) {

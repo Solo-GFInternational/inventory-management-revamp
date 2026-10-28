@@ -1,5 +1,5 @@
 @extends('layouts.app')
-@section('title', 'Stock')
+@section('title', 'Inventory and Stock')
 
 @section('content')
     @php
@@ -7,9 +7,9 @@
         $reopen = old('_modal');
     @endphp
 
-    <x-page-header title="Stock" description="In stock is what's on the shelf now; given out is what has been issued as new. Total is both together.">
+    <x-inventory-tabs active="stock" description="In stock is what's on the shelf now; given out is what has been issued as new. Total is both together.">
         <x-button icon="plus" data-modal-open="add-stock">Add stock</x-button>
-    </x-page-header>
+    </x-inventory-tabs>
 
     {{-- Stats overview: totals across every active item. --}}
     <div class="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-3">
@@ -98,7 +98,7 @@
         @if ($reopen === 'add-stock')
             <x-form-errors />
         @endif
-        <form id="add-stock-form" method="POST" action="{{ route('stock.store') }}" class="space-y-5"
+        <form id="add-stock-form" method="POST" action="{{ route('stock.store') }}" class="gf-modal-fields space-y-5"
               data-processing="Adding stock…">
             @csrf
             <input type="hidden" name="_modal" value="add-stock">
@@ -142,7 +142,7 @@
                 @if ($reopen === $modalId)
                     <x-form-errors />
                 @endif
-                <form id="{{ $modalId }}-form" method="POST" action="{{ route('stock.update', $stock) }}" class="space-y-5"
+                <form id="{{ $modalId }}-form" method="POST" action="{{ route('stock.update', $stock) }}" class="gf-modal-fields space-y-5"
                       data-processing="Saving the stock count…">
                     @csrf
                     @method('PUT')

@@ -6,37 +6,12 @@ use App\Models\Inventory;
 use App\Models\Stock;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\CreatesInventory;
 use Tests\TestCase;
 
 class InventoryAccessTest extends TestCase
 {
-    use RefreshDatabase;
-
-    private function makeUser(string $role): User
-    {
-        $user = User::factory()->create();
-        $user->forceFill(['role' => $role])->save();
-
-        return $user;
-    }
-
-    private function makeInventory(User $givenBy, array $overrides = []): Inventory
-    {
-        $inventory = new Inventory;
-        $inventory->forceFill($overrides + [
-            'date' => now()->toDateString(),
-            'qty' => 1,
-            'item' => 'Laptop Bag',
-            'condition' => 'new',
-            'given_by' => $givenBy->id,
-            'taken_by' => 'Someone',
-            'department' => 'Finance',
-            'site' => 'Dry Goods',
-            'status' => 'approved',
-        ])->save();
-
-        return $inventory;
-    }
+    use CreatesInventory, RefreshDatabase;
 
     public function test_guests_cannot_download_the_pdf()
     {
@@ -60,20 +35,24 @@ class InventoryAccessTest extends TestCase
 
         $this->actingAs($user)->get('/inventory')->assertOk()->assertSee('edit-inventory-'.$inventory->id);
 
-        $this->actingAs($user)->put("/inventory/{$inventory->id}", [
+        $this->actingAs($user)->put("/inventory/{$inventory->id}", $this->withIds([
             'date' => now()->toDateString(),
             'qty' => 1,
             'item' => 'Laptop Bag',
             'condition' => 'used',
             'taken_by' => 'Someone Else',
             'department' => 'Finance',
-            'site' => 'Dry Goods',
-        ])->assertRedirect('/inventory');
+            'site' => 'Lautoka',
+        ]))->assertRedirect('/inventory');
 
         $inventory->refresh();
         $this->assertSame('pending', $inventory->status);
         $this->assertSame('edit', $inventory->approval_type);
         $this->assertSame(['old' => 'Someone', 'new' => 'Someone Else'], $inventory->change_log['taken_by']);
+        // Foreign keys are logged by name, under the field's display key.
+        $this->assertSame(['old' => 'Dry Goods', 'new' => 'Lautoka'], $inventory->change_log['site']);
+        $this->assertArrayNotHasKey('site_id', $inventory->change_log);
+        $this->assertArrayNotHasKey('department', $inventory->change_log);
     }
 
     public function test_admin_can_approve_with_post_or_patch()
@@ -98,7 +77,7 @@ class InventoryAccessTest extends TestCase
 
         $this->actingAs($admin)->delete("/inventory/{$inventory->id}")->assertRedirect('/inventory');
 
-        $this->assertDatabaseHas('inventories', ['id' => $inventory->id]);
+        $this->assertDatabaseHas(Inventory::class, ['id' => $inventory->id]);
         $this->assertFalse($inventory->fresh()->active_yn);
 
         $this->actingAs($admin)->get('/inventory')->assertOk()->assertDontSee('edit-inventory-'.$inventory->id);
@@ -111,7 +90,7 @@ class InventoryAccessTest extends TestCase
 
         $this->actingAs($admin)->post("/inventory/{$inventory->id}/approve")->assertRedirect();
 
-        $this->assertDatabaseHas('activity_log', [
+        $this->assertDatabaseHas('logs.activity_log', [
             'log_name' => 'inventory',
             'event' => 'approved',
             'subject_id' => $inventory->id,
@@ -125,10 +104,57 @@ class InventoryAccessTest extends TestCase
         $this->makeInventory($admin, [
             'status' => 'pending',
             'approval_type' => 'edit',
-            'change_log' => ['taken_by' => ['old' => 'Alice Old', 'new' => 'Bob New']],
+            'item' => 'Docking Station',
+            'department' => 'Information Technology',
+            'site' => 'Feed Mill',
+            'change_log' => [
+                'taken_by' => ['old' => 'Alice Old', 'new' => 'Bob New'],
+                'item' => ['old' => 'Old Webcam', 'new' => 'Docking Station'],
+            ],
         ]);
 
-        $this->actingAs($admin)->get('/inventory/pending')->assertOk()->assertSee('Alice Old')->assertSee('Bob New');
+        $this->actingAs($admin)->get('/inventory/pending')->assertOk()
+            ->assertSee('Alice Old')->assertSee('Bob New')
+            ->assertSee('Old Webcam')
+            // The row itself shows names, not ids.
+            ->assertSee('Docking Station')->assertSee('Information Technology')->assertSee('Feed Mill');
+    }
+
+    public function test_non_admin_edit_of_item_and_department_logs_names_for_the_approvals_page()
+    {
+        $admin = $this->makeUser('admin');
+        $user = $this->makeUser('user');
+        $inventory = $this->makeInventory($user, ['condition' => 'used']);
+
+        $this->actingAs($user)->put("/inventory/{$inventory->id}", $this->withIds([
+            'date' => now()->toDateString(),
+            'qty' => 1,
+            'item' => 'Webcam',
+            'condition' => 'used',
+            'taken_by' => 'Someone',
+            'department' => 'Logistics',
+            'site' => 'Dry Goods',
+        ]))->assertSessionHasNoErrors();
+
+        $log = $inventory->fresh()->change_log;
+        $this->assertSame(['old' => 'Laptop Bag', 'new' => 'Webcam'], $log['item']);
+        $this->assertSame(['old' => 'Finance', 'new' => 'Logistics'], $log['department']);
+        $this->assertCount(2, $log);
+
+        $this->actingAs($admin)->get('/inventory/pending')->assertOk()
+            ->assertSee('Laptop Bag')->assertSee('Webcam')->assertSee('Finance')->assertSee('Logistics');
+    }
+
+    public function test_index_filters_by_site_id()
+    {
+        $admin = $this->makeUser('admin');
+        $here = $this->makeInventory($admin, ['site' => 'Lautoka', 'taken_by' => 'Lautoka Person']);
+        $there = $this->makeInventory($admin, ['site' => 'Feed Mill', 'taken_by' => 'Feed Mill Person']);
+
+        $this->actingAs($admin)->get('/inventory?site_id='.$here->site_id)
+            ->assertOk()
+            ->assertSee('edit-inventory-'.$here->id)
+            ->assertDontSee('edit-inventory-'.$there->id);
     }
 
     public function test_pdf_downloads()
@@ -139,6 +165,15 @@ class InventoryAccessTest extends TestCase
         $this->actingAs($admin)->get('/inventory/download-pdf?year='.now()->year)
             ->assertOk()
             ->assertHeader('content-type', 'application/pdf');
+
+        // The PDF is rendered from names.
+        $html = view('inventory.pdf', [
+            'inventories' => Inventory::with(['giver', 'stock', 'department', 'site'])->get(),
+            'year' => now()->year,
+        ])->render();
+        $this->assertStringContainsString('Laptop Bag', $html);
+        $this->assertStringContainsString('Finance', $html);
+        $this->assertStringContainsString('Dry Goods', $html);
     }
 
     public function test_created_by_and_updated_by_come_from_the_signed_in_user()

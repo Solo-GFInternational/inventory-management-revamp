@@ -15,7 +15,7 @@ class StockController extends Controller
 
         // The stock list is small, so load every active item once: the stat
         // cards total all of them, and the table shows the search matches.
-        $allStocks = Stock::active()->withGivenOut()->orderBy('stocks.item')->get();
+        $allStocks = Stock::active()->withGivenOut()->orderBy((new Stock)->qualifyColumn('item'))->get();
 
         $totals = [
             'inStock' => $allStocks->sum(fn (Stock $stock) => $stock->inStock()),
@@ -40,7 +40,7 @@ class StockController extends Controller
                 'required_without:new_item',
                 'prohibits:new_item',
                 'string',
-                Rule::exists('stocks', 'item')->where('active_yn', true),
+                Rule::exists(Stock::class, 'item')->where('active_yn', true),
             ],
             'new_item' => ['nullable', 'required_without:item', 'string', 'max:255'],
             'qty' => ['required', 'integer', 'min:1', 'max:100000'],
@@ -57,8 +57,10 @@ class StockController extends Controller
         $name = trim($validated['item'] ?? $validated['new_item']);
 
         // A typed name that matches an existing (or deactivated) item adds to
-        // that item rather than creating a duplicate; stocks.item is unique.
-        $stock = Stock::firstOrCreate(['item' => $name], ['qty' => 0]);
+        // that item rather than creating a duplicate; the name is unique among
+        // active rows, so prefer the active one, then the latest deactivated.
+        $stock = Stock::where('item', $name)->orderByDesc('active_yn')->orderByDesc('id')->first()
+            ?? Stock::create(['item' => $name, 'qty' => 0]);
 
         // Atomic increment; reactivates the item if it had been deactivated.
         $stock->increment('qty', (int) $validated['qty'], ['active_yn' => true]);

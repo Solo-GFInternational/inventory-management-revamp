@@ -2,44 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\Inventory;
 use App\Models\Stock;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\CreatesInventory;
 use Tests\TestCase;
 
 class StockTest extends TestCase
 {
-    use RefreshDatabase;
-
-    private function makeUser(string $role): User
-    {
-        $user = User::factory()->create();
-        $user->forceFill(['role' => $role])->save();
-
-        return $user;
-    }
-
-    private function makeInventory(User $givenBy, array $overrides = []): Inventory
-    {
-        $inventory = Inventory::create($overrides + [
-            'date' => now()->toDateString(),
-            'qty' => 1,
-            'item' => 'Laptop Bag',
-            'condition' => 'new',
-            'given_by' => $givenBy->id,
-            'taken_by' => 'Someone',
-            'department' => 'Finance',
-            'site' => 'Dry Goods',
-            'status' => 'approved',
-        ]);
-
-        if (array_key_exists('active_yn', $overrides)) {
-            $inventory->forceFill(['active_yn' => $overrides['active_yn']])->save();
-        }
-
-        return $inventory;
-    }
+    use CreatesInventory, RefreshDatabase;
 
     public function test_index_shows_in_stock_given_out_and_total()
     {
@@ -58,7 +28,7 @@ class StockTest extends TestCase
         $this->makeInventory($user, ['qty' => 20, 'condition' => 'used']);
         $this->makeInventory($user, ['qty' => 40, 'active_yn' => false]);
 
-        $stocks = Stock::active()->withGivenOut()->orderBy('stocks.item')->get()->keyBy('item');
+        $stocks = Stock::active()->withGivenOut()->orderBy('inventory.stocks.item')->get()->keyBy('item');
         $this->assertCount(2, $stocks);
         $this->assertEquals([5, 3, 8], [$stocks['Laptop Bag']->inStock(), $stocks['Laptop Bag']->givenOut(), $stocks['Laptop Bag']->total()]);
         $this->assertEquals([0, 4, 4], [$stocks['Mouse']->inStock(), $stocks['Mouse']->givenOut(), $stocks['Mouse']->total()]);
@@ -81,6 +51,23 @@ class StockTest extends TestCase
 
         $admin = $this->makeUser('admin');
         $this->actingAs($admin)->get('/stock')->assertOk()->assertSee('adjust-stock-'.$mouse->id);
+    }
+
+    public function test_given_out_follows_the_stock_row_not_the_name()
+    {
+        $user = $this->makeUser('user');
+        $old = Stock::create(['item' => 'Headset', 'qty' => 0]);
+        $old->forceFill(['active_yn' => false])->save();
+        $this->makeInventory($user, ['stock_id' => $old->id, 'qty' => 6]);
+
+        // A new active row with the same name starts with nothing given out.
+        $new = Stock::create(['item' => 'Headset', 'qty' => 2]);
+        $this->makeInventory($user, ['stock_id' => $new->id, 'qty' => 1]);
+
+        $givenOut = Stock::withGivenOut()->get()->keyBy('id');
+        $this->assertEquals(6, $givenOut[$old->id]->givenOut());
+        $this->assertEquals(1, $givenOut[$new->id]->givenOut());
+        $this->assertEquals(6, $old->inventories()->sum('qty'));
     }
 
     public function test_add_stock_creates_a_new_item()

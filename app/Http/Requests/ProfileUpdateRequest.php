@@ -18,7 +18,10 @@ class ProfileUpdateRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class)->ignore($this->user()->id)],
+            // Deactivated accounts count too (as in Settings > Users > Edit):
+            // ux_users_email only covers active rows, but taking a
+            // deactivated account's email would stop it being reactivated.
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique(User::class, 'email')->ignore($this->user()->id)],
         ];
     }
 }

@@ -67,6 +67,10 @@ window.gfSwal = {
             ...(icon === 'success' ? { timer: 6000, timerProgressBar: true } : {}),
         });
     },
+
+    // Pages trialling TallStackUI load resources/js/tallstackui-alerts.js
+    // first; its confirm / alert / processing replace the SweetAlert ones.
+    ...(window.gfAlertProvider ?? {}),
 };
 
 /*
@@ -188,7 +192,7 @@ if (flash.status) {
  * shows it once confirmed, and the browser's own required-field checks have
  * already passed by the time a submit event fires.
  */
-window.gfSwal.processing = (title, text) => {
+window.gfSwal.processing ??= (title, text) => {
     if (! window.Swal) {
         return;
     }
@@ -223,4 +227,55 @@ window.addEventListener('pageshow', (event) => {
     if (event.persisted && window.Swal?.isVisible() && window.Swal.isLoading()) {
         window.Swal.close();
     }
+});
+
+/*
+ * Inventory create form: "People receiving this item" (inventory/_form).
+ * "+ Add person" clones the row <template>, Remove takes a row out, and
+ * every row's people[N][...] names are re-numbered 0, 1, 2… so the server
+ * sees them in order. Remove buttons only show while there is more than one
+ * row, and Add stops at the server's cap (data-people-max).
+ */
+document.querySelectorAll('[data-people]').forEach((field) => {
+    const list = field.querySelector('[data-people-list]');
+    const template = field.querySelector('template[data-people-template]');
+    const addButton = field.querySelector('[data-people-add]');
+    const max = Number(field.dataset.peopleMax) || Infinity;
+
+    const renumber = () => {
+        const rows = list.querySelectorAll('[data-person]');
+
+        rows.forEach((row, index) => {
+            row.querySelectorAll('[name^="people["]').forEach((input) => {
+                input.name = input.name.replace(/^people\[[^\]]*\]/, `people[${index}]`);
+            });
+            row.querySelector('[data-person-remove]').hidden = rows.length <= 1;
+        });
+
+        addButton.disabled = rows.length >= max;
+        addButton.classList.toggle('opacity-50', rows.length >= max);
+    };
+
+    addButton.addEventListener('click', () => {
+        if (list.querySelectorAll('[data-person]').length >= max) {
+            return;
+        }
+
+        const row = template.content.firstElementChild.cloneNode(true);
+
+        list.appendChild(row);
+        renumber();
+        row.querySelector('input')?.focus();
+    });
+
+    list.addEventListener('click', (event) => {
+        const remove = event.target.closest('[data-person-remove]');
+
+        if (remove && list.querySelectorAll('[data-person]').length > 1) {
+            remove.closest('[data-person]').remove();
+            renumber();
+        }
+    });
+
+    renumber();
 });

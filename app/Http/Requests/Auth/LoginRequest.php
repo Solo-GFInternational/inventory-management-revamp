@@ -5,6 +5,7 @@ namespace App\Http\Requests\Auth;
 use App\Models\User;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\Rule;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -49,8 +50,15 @@ class LoginRequest extends FormRequest
         // so the message never reveals anything about an email on its own.
         $deactivated = false;
 
+        // ux_users_email only covers active rows, so a deactivated account may
+        // share an email with an active one: look the active one up first.
+        $credentials = [
+            ...$this->only('email', 'password'),
+            fn (Builder $query) => $query->orderByDesc('active_yn')->orderByDesc('id'),
+        ];
+
         $signedIn = Auth::attemptWhen(
-            $this->only('email', 'password'),
+            $credentials,
             function (User $user) use (&$deactivated) {
                 $deactivated = ! $user->isActive();
 

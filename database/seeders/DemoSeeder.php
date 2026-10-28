@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Inventory;
 use App\Models\Stock;
+use App\Models\Type;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -11,10 +12,14 @@ use Illuminate\Support\Facades\Hash;
 /**
  * Local demo data. Safe to re-run: users and stock are matched by
  * email / item name, and sample inventory is only added to an empty table.
+ * Needs TypeSeeder first (departments and sites).
+ *
+ * Sample inventory is inserted directly (not through StockLedger), so the
+ * stock counts below are what is on the shelf after these issues.
  */
 class DemoSeeder extends Seeder
 {
-    public function run()
+    public function run(): void
     {
         $admin = User::updateOrCreate(
             ['email' => 'admin@demo.test'],
@@ -44,15 +49,30 @@ class DemoSeeder extends Seeder
             return;
         }
 
+        $stockId = fn (string $item) => Stock::where('item', $item)->value('id');
+        $typeId = fn (string $group, string $name) => Type::group($group)->where('type_name', $name)->value('id');
+
         $rows = [
-            ['item' => 'Laptop Bag', 'serial_number' => 'BAG-0001', 'taken_by' => 'Alex Example', 'department' => 'Finance', 'site' => 'Dry Goods', 'given_by' => $admin->id, 'status' => 'approved', 'approval_type' => null],
-            ['item' => 'Wireless Mouse', 'serial_number' => 'MSE-0042', 'taken_by' => 'Sam Example', 'department' => 'Information Technology', 'site' => 'Dry Goods', 'given_by' => $admin->id, 'status' => 'approved', 'approval_type' => null],
-            ['item' => 'Printer', 'serial_number' => 'PRN-0007', 'taken_by' => 'Jordan Example', 'department' => 'Engineering', 'site' => 'Feed Mill', 'given_by' => $admin->id, 'status' => 'approved', 'approval_type' => null],
-            ['item' => 'Headphone', 'serial_number' => 'HDP-0003', 'taken_by' => 'Taylor Example', 'department' => 'Exports', 'site' => 'Dry Goods', 'given_by' => $user->id, 'status' => 'pending', 'approval_type' => 'new'],
+            ['Laptop Bag', 'BAG-0001', 'Alex Example', 'Finance', 'Dry Goods', $admin, 'approved'],
+            ['Wireless Mouse', 'MSE-0042', 'Sam Example', 'Information Technology', 'Dry Goods', $admin, 'approved'],
+            ['Printer', 'PRN-0007', 'Jordan Example', 'Engineering', 'Feed Mill', $admin, 'approved'],
+            ['Headphone', 'HDP-0003', 'Taylor Example', 'Sales', 'Lautoka', $user, 'pending'],
         ];
 
-        foreach ($rows as $row) {
-            Inventory::create($row + ['date' => now()->toDateString(), 'qty' => 1, 'condition' => 'new']);
+        foreach ($rows as [$item, $serial, $takenBy, $department, $site, $givenBy, $status]) {
+            Inventory::create([
+                'date' => now()->toDateString(),
+                'stock_id' => $stockId($item),
+                'qty' => 1,
+                'serial_number' => $serial,
+                'condition' => 'new',
+                'taken_by' => $takenBy,
+                'department_id' => $typeId(Type::DEPARTMENT, $department),
+                'site_id' => $typeId(Type::SITE, $site),
+                'given_by' => $givenBy->id,
+                'status' => $status,
+                'approval_type' => $status === 'pending' ? 'new' : null,
+            ]);
         }
     }
 }

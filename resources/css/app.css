@@ -82,6 +82,10 @@ select.select-arrow::-ms-expand {
  *                       (site-visit's View visit request page)
  *   .gf-table           a table inside an <x-card>: gray header row,
  *                       divided rows, Filament's cell padding
+ *   .gf-modal-fields    the form fields in an <x-modal>: a line across the
+ *                       modal's full width above and below them, with
+ *                       space before the buttons. Notes and errors sit
+ *                       above the top line.
  */
 @layer components {
     .gf-label {
@@ -98,6 +102,10 @@ select.select-arrow::-ms-expand {
 
     .gf-readonly-field {
         @apply flex min-h-10 w-full items-center rounded-lg border border-gray-300 bg-gray-50 px-3 py-[0.4375rem] text-sm leading-normal text-gray-950;
+    }
+
+    .gf-modal-fields {
+        @apply -mx-6 mb-2 border-y border-gray-200 px-6 py-6;
     }
 
     .gf-table {
@@ -129,4 +137,41 @@ select.select-arrow::-ms-expand {
 .swal2-popup {
     font-family: var(--font-sans);
     border-radius: 0.75rem;
+}
+
+/*
+ * TallStackUI dialogs and toasts (trial on the Inventory pages, which set
+ * @section('alerts', 'tallstackui')). Only the classes those two components
+ * use are scanned. The package's own css/v4.css isn't imported: it pulls in
+ * the @tailwindcss/forms plugin and an indigo primary palette, neither of
+ * which this app uses, so its dialogs pick up the teal primary-* above.
+ * Its dark: classes follow a .dark class (never set) rather than the OS
+ * setting, so the dialogs stay light like the rest of the app.
+ */
+@source '../../vendor/tallstackui/tallstackui/src/resources/views/components/dialog';
+@source '../../vendor/tallstackui/tallstackui/src/resources/views/components/toast';
+@source '../../vendor/tallstackui/tallstackui/src/Components/Dialog';
+@source '../../vendor/tallstackui/tallstackui/src/Components/Toast';
+/*
+ * The classes from the package's DialogColors.php and ToastColors.php (light
+ * mode). Pointing @source at those two files (by path or glob) took app.css
+ * from about 47 kB to 314 kB, as if the whole colour folder, every
+ * component's palette, were scanned. Re-copy them if a TallStackUI update
+ * changes the dialog's colours.
+ */
+@source inline('bg-blue-100 bg-blue-500! bg-blue-600 bg-green-100 bg-green-500! bg-green-600 bg-primary-100 bg-primary-500! bg-primary-600 bg-red-100 bg-red-500! bg-red-600 bg-transparent bg-white bg-yellow-100 bg-yellow-500! bg-yellow-600 focus:bg-white/20 focus:ring-blue-500 focus:ring-green-500 focus:ring-offset-blue-100 focus:ring-offset-green-100 focus:ring-offset-primary-100 focus:ring-offset-red-100 focus:ring-offset-yellow-100 focus:ring-primary-500 focus:ring-red-500 focus:ring-white/50 focus:ring-yellow-500 focus:text-white! font-bold! hover:bg-blue-700 hover:bg-green-700 hover:bg-primary-700 hover:bg-red-700 hover:bg-white/20 hover:bg-white/90 hover:bg-yellow-700 hover:text-white! text-blue-400 text-blue-600 text-blue-700! text-green-400 text-green-600 text-green-700! text-primary-600 text-primary-700! text-red-400 text-red-600 text-red-700 text-red-700! text-secondary-400 text-white text-white/80 text-white/80! text-yellow-400 text-yellow-600 text-yellow-700!');
+/* The dialog's Cancel is a TallStackUI button in solid red; its full colour table is 65 kB of classes. */
+@source '../../vendor/tallstackui/tallstackui/src/Components/Button/Normal';
+@source '../../vendor/tallstackui/tallstackui/src/resources/views/components/button/button.blade.php';
+@source inline('text-red-50 ring-red-500 bg-red-500 focus:bg-red-600 hover:bg-red-600 border-transparent focus:ring-offset-2');
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+[x-cloak] {
+    display: none;
+}
+
+/* The "Saving…" dialog can't be closed (resources/js/tallstackui-alerts.js). */
+html[data-gf-processing] [role='dialog'] button[x-on\:click='remove()'] {
+    display: none;
 }

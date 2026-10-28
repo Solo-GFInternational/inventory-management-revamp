@@ -40,6 +40,7 @@
     <thead>
         <tr>
             <th>#</th>
+            <th>Barcode</th>
             <th>Date</th>
             <th>Item</th>
             <th class="num">Qty</th>
@@ -56,19 +57,20 @@
         @forelse ($inventories as $index => $inventory)
             <tr>
                 <td>{{ $index + 1 }}</td>
+                <td>{{ $inventory->barcode ?? '—' }}</td>
                 <td>{{ \Illuminate\Support\Carbon::parse($inventory->date)->format('d M Y') }}</td>
-                <td>{{ $inventory->item }}</td>
+                <td>{{ $inventory->stock?->item }}</td>
                 <td class="num">{{ $inventory->qty }}</td>
                 <td>{{ $inventory->serial_number ?: '—' }}</td>
                 <td>{{ ucfirst($inventory->condition) }}</td>
                 <td>{{ $inventory->taken_by }}</td>
-                <td>{{ $inventory->department }}</td>
-                <td>{{ $inventory->site ?: '—' }}</td>
+                <td>{{ $inventory->department?->type_name }}</td>
+                <td>{{ $inventory->site?->type_name ?? '—' }}</td>
                 <td>{{ $inventory->giver->name ?? '—' }}</td>
-                <td @class(['pending' => $inventory->status !== 'approved'])>{{ $inventory->status === 'approved' ? 'Approved' : 'Awaiting approval' }}</td>
+                <td @class(['pending' => $inventory->status !== 'approved'])>{{ $inventory->status !== 'approved' ? 'Awaiting approval' : ($inventory->isReturned() ? 'Returned' : 'Approved') }}</td>
             </tr>
         @empty
-            <tr><td colspan="11" class="empty">No inventory records for {{ $year }}.</td></tr>
+            <tr><td colspan="12" class="empty">No inventory records for {{ $year }}.</td></tr>
         @endforelse
     </tbody>
 </table>

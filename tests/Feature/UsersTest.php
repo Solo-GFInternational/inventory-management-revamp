@@ -342,7 +342,7 @@ class UsersTest extends TestCase
 
         $this->actingAs($admin)->delete(route('users.destroy', $user))->assertRedirect();
 
-        $this->assertDatabaseHas('users', ['id' => $user->id]);
+        $this->assertDatabaseHas(User::class, ['id' => $user->id]);
         $this->assertFalse($user->fresh()->active_yn);
 
         $this->actingAs($admin)->patch(route('users.reactivate', $user))->assertRedirect();
@@ -397,14 +397,66 @@ class UsersTest extends TestCase
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', EnsureUserIsActive::class);
 
         $user = $this->makeUser('user');
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
+        $this->actingAs($user)->get(route('profile.edit'))->assertOk();
 
         $user = $this->deactivate($user);
 
-        $this->actingAs($user)->get(route('dashboard'))
+        $this->actingAs($user)->get(route('profile.edit'))
             ->assertRedirect(route('login'))
             ->assertSessionHasErrors(['email' => LoginRequest::DEACTIVATED_MESSAGE]);
 
         $this->assertGuest();
+    }
+
+    public function test_edit_rejects_a_deactivated_accounts_email()
+    {
+        $admin = $this->makeUser('admin');
+        $user = $this->makeUser('user');
+        $gone = $this->deactivate($this->makeUser('user'));
+
+        $this->actingAs($admin)->put(route('users.update', $user), [
+            'name' => $user->name,
+            'email' => $gone->email,
+            'role' => 'user',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertNotSame($gone->email, $user->fresh()->email);
+    }
+
+    /**
+     * ux_users_email only covers active rows, so older data can hold a
+     * deactivated account sharing an active one's email.
+     */
+    private function deactivatedTwinOf(User $active): User
+    {
+        $twin = User::factory()->make(['email' => $active->email]);
+        $twin->active_yn = false;
+        $twin->save();
+
+        return $twin->fresh();
+    }
+
+    public function test_reactivate_refuses_when_an_active_account_has_the_email()
+    {
+        $admin = $this->makeUser('admin');
+        $active = $this->makeUser('user');
+        $twin = $this->deactivatedTwinOf($active);
+
+        $this->actingAs($admin)->patch(route('users.reactivate', $twin))
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertFalse($twin->fresh()->active_yn);
+    }
+
+    public function test_sign_in_uses_the_active_account_when_a_deactivated_one_shares_its_email()
+    {
+        $active = $this->makeUser('user');
+        $this->deactivatedTwinOf($active);
+
+        $this->post('/login', ['email' => $active->email, 'password' => 'password'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertAuthenticatedAs($active);
     }
 }

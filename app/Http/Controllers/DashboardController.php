@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Inventory;
 use App\Models\Stock;
+use App\Models\Type;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
@@ -12,42 +13,52 @@ class DashboardController extends Controller
 {
     public function index(Request $request): View
     {
-        $site = $request->string('site')->trim()->toString() ?: null;
-        $department = $request->string('department')->trim()->toString() ?: null;
+        $site = $request->integer('site_id') ?: null;
+        $department = $request->integer('department_id') ?: null;
 
         // Stat cards. Deactivated rows never count; "given out" and "issued"
-        // only count approved issues (pending ones haven't left the shelf).
+        // only count approved issues still with someone (pending ones haven't
+        // left the shelf, returned ones are back on it).
         $inStock = (int) Stock::active()->sum('qty');
 
         $givenOut = (int) Inventory::active()
             ->where('status', 'approved')
             ->where('condition', 'new')
+            ->whereNull('returned_at')
             ->sum('qty');
 
         $pendingCount = Inventory::active()->where('status', 'pending')->count();
 
         $issuedThisMonth = (int) Inventory::active()
             ->where('status', 'approved')
+            ->whereNull('returned_at')
             ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
             ->sum('qty');
 
-        // Item-wise total quantity issued (approved), filterable by site and department.
+        // Item-wise total quantity issued (approved and not returned),
+        // filterable by site and department; one row per stock item, named
+        // from inventory.stocks.
+        $inventories = (new Inventory)->getTable();
+        $stocks = (new Stock)->getTable();
+
         $items = Inventory::active()
-            ->where('status', 'approved')
-            ->when($site, fn ($query) => $query->where('site', $site))
-            ->when($department, fn ($query) => $query->where('department', $department))
-            ->select('item', DB::raw('SUM(qty) as total_qty'))
-            ->groupBy('item')
-            ->orderBy('item')
+            ->join($stocks, "{$stocks}.id", '=', "{$inventories}.stock_id")
+            ->where("{$inventories}.status", 'approved')
+            ->whereNull("{$inventories}.returned_at")
+            ->when($site, fn ($query) => $query->where("{$inventories}.site_id", $site))
+            ->when($department, fn ($query) => $query->where("{$inventories}.department_id", $department))
+            ->select("{$inventories}.stock_id", "{$stocks}.item", DB::raw("SUM({$inventories}.qty) as total_qty"))
+            ->groupBy("{$inventories}.stock_id", "{$stocks}.item")
+            ->orderBy("{$stocks}.item")
             ->get();
 
-        // Filter dropdowns, from active rows only.
-        $sites = Inventory::active()->whereNotNull('site')->where('site', '<>', '')
-            ->distinct()->orderBy('site')->pluck('site');
-        $departments = Inventory::active()->whereNotNull('department')->where('department', '<>', '')
-            ->distinct()->orderBy('department')->pluck('department');
+        // Filter dropdowns: the managed lists, keeping a chosen value that has
+        // since been deactivated.
+        $sites = Type::options(Type::SITE, $site);
+        $departments = Type::options(Type::DEPARTMENT, $department);
 
         $recent = Inventory::active()
+            ->with(['stock', 'department', 'site'])
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->limit(5)

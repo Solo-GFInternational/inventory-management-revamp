@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 
 #[Fillable(['item', 'qty'])]
@@ -14,27 +15,36 @@ class Stock extends Model
 {
     use HasFactory, HasStandardColumns;
 
+    protected $table = 'inventory.stocks';
+
     /** In stock at or below this count is flagged as low. */
     public const LOW_STOCK = 2;
 
+    /** The inventory rows that issued this item. */
+    public function inventories(): HasMany
+    {
+        return $this->hasMany(Inventory::class);
+    }
+
     /**
      * Adds a `given_out` column: the quantity of this item issued as new
-     * (active, approved inventory rows with condition "new", matched by item
-     * name), from one grouped subquery rather than a query per row.
+     * (active, approved inventory rows with condition "new" that haven't
+     * been returned to stock), from one grouped subquery rather than a
+     * query per row.
      */
     public function scopeWithGivenOut(Builder $query): Builder
     {
-        $givenOut = Inventory::query()
-            ->select('item')
+        $givenOut = Inventory::active()
+            ->select('stock_id')
             ->selectRaw('SUM(qty) as given_out')
-            ->where('active_yn', true)
             ->where('status', 'approved')
             ->where('condition', 'new')
-            ->groupBy('item');
+            ->whereNull('returned_at')
+            ->groupBy('stock_id');
 
         return $query
-            ->leftJoinSub($givenOut, 'given', 'given.item', '=', 'stocks.item')
-            ->select('stocks.*')
+            ->leftJoinSub($givenOut, 'given', 'given.stock_id', '=', $this->qualifyColumn('id'))
+            ->select($this->qualifyColumn('*'))
             ->addSelect(DB::raw('COALESCE(given.given_out, 0) as given_out'));
     }
 

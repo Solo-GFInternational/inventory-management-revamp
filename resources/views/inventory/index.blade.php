@@ -1,15 +1,15 @@
 @extends('layouts.app')
-@section('title', 'Inventory')
+@section('title', 'Inventory and Stock')
 
 @section('content')
     @php
         $isAdmin = auth()->user()->isAdmin();
         $reopen = old('_modal');
-        $hasFilters = $filters['taken_by'] !== '' || $filters['site'] !== '' || $filters['status'] !== '';
+        $hasFilters = $filters['taken_by'] !== '' || $filters['site_id'] !== '' || $filters['status'] !== '';
     @endphp
 
-    <x-page-header title="Inventory"
-                   description="Equipment issued to staff. New items come out of stock once the record is approved.">
+    <x-inventory-tabs active="inventory"
+                      description="Equipment issued to staff. New items come out of stock once the record is approved.">
         {{-- Yearly report: a plain GET form, so it works without JavaScript. --}}
         <form method="GET" action="{{ route('inventory.download.pdf') }}" class="flex items-center gap-2">
             <select name="year" aria-label="Report year" class="gf-input select-arrow w-28">
@@ -20,7 +20,7 @@
             <x-button type="submit" color="gray" icon="arrow-down-tray" class="whitespace-nowrap">Download PDF</x-button>
         </form>
         <x-button icon="plus" data-modal-open="create-inventory">Add inventory</x-button>
-    </x-page-header>
+    </x-inventory-tabs>
 
     <x-card>
         {{-- Table toolbar: filters above the table, at the right. --}}
@@ -30,16 +30,17 @@
                 <input type="search" name="taken_by" value="{{ $filters['taken_by'] }}" placeholder="Search taken by" aria-label="Search taken by"
                        class="gf-input ps-10">
             </div>
-            <select name="site" aria-label="Site" class="gf-input select-arrow w-full sm:w-56">
+            <select name="site_id" aria-label="Site" class="gf-input select-arrow w-full sm:w-56">
                 <option value="">All sites</option>
-                @foreach ($sites as $site)
-                    <option value="{{ $site }}" @selected($filters['site'] === $site)>{{ $site }}</option>
+                @foreach ($filterSites as $id => $name)
+                    <option value="{{ $id }}" @selected($filters['site_id'] === (string) $id)>{{ $name }}</option>
                 @endforeach
             </select>
             <select name="status" aria-label="Status" class="gf-input select-arrow w-full sm:w-48">
                 <option value="">All statuses</option>
                 <option value="approved" @selected($filters['status'] === 'approved')>Approved</option>
                 <option value="pending" @selected($filters['status'] === 'pending')>Awaiting approval</option>
+                <option value="returned" @selected($filters['status'] === 'returned')>Returned</option>
             </select>
             <x-button type="submit" color="gray" icon="funnel">Filter</x-button>
             @if ($hasFilters)
@@ -73,7 +74,12 @@
                             <td @class(['whitespace-nowrap', 'font-semibold text-amber-700' => $changed('date')])>
                                 {{ \Illuminate\Support\Carbon::parse($inventory->date)->format('d M Y') }}
                             </td>
-                            <td @class(['font-medium', 'text-amber-700' => $changed('item')])>{{ $inventory->item }}</td>
+                            <td>
+                                <span @class(['font-medium', 'text-amber-700' => $changed('item')])>{{ $inventory->stock?->item }}</span>
+                                @if ($inventory->barcode)
+                                    <span class="block font-mono text-xs text-gray-400">{{ $inventory->barcode }}</span>
+                                @endif
+                            </td>
                             <td @class(['text-end tabular-nums', 'font-semibold text-amber-700' => $changed('qty')])>{{ $inventory->qty }}</td>
                             <td @class(['text-gray-500', 'font-semibold text-amber-700' => $changed('serial_number')])>{{ $inventory->serial_number ?: '—' }}</td>
                             <td @class(['font-semibold text-amber-700' => $changed('condition')])>{{ ucfirst($inventory->condition) }}</td>
@@ -83,15 +89,16 @@
                                     <span class="block text-xs text-gray-400">Given by {{ $inventory->giver->name }}</span>
                                 @endif
                             </td>
-                            <td @class(['font-semibold text-amber-700' => $changed('department')])>{{ $inventory->department }}</td>
-                            <td @class(['font-semibold text-amber-700' => $changed('site')])>{{ $inventory->site ?: '—' }}</td>
+                            <td @class(['font-semibold text-amber-700' => $changed('department')])>{{ $inventory->department?->type_name }}</td>
+                            <td @class(['font-semibold text-amber-700' => $changed('site')])>{{ $inventory->site?->type_name ?? '—' }}</td>
                             <td class="whitespace-nowrap">@include('inventory._status', ['inventory' => $inventory])</td>
                             <td>
                                 <div class="flex items-center justify-end gap-2">
+                                    <x-icon-button icon="eye" label="View" color="gray" :href="route('inventory.show', $inventory)" />
                                     <x-icon-button icon="pencil-square" label="Edit" data-modal-open="edit-inventory-{{ $inventory->getKey() }}" />
                                     @if ($isAdmin && $inventory->isPending())
                                         <form method="POST" action="{{ route('inventory.approve', $inventory) }}"
-                                              data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
+                                              data-confirm="{{ $inventory->condition === 'new' ? $inventory->qty.' × '.$inventory->stock?->item.' will be taken out of stock.' : 'The record will be marked approved.' }}"
                                               data-confirm-title="Approve this record?" data-confirm-button="Yes, approve"
                                               data-processing="Approving…" data-processing-text="Updating the record and the stock count.">
                                             @csrf
@@ -101,7 +108,7 @@
                                     @endif
                                     @if ($isAdmin)
                                         <form method="POST" action="{{ route('inventory.destroy', $inventory) }}"
-                                              data-confirm="{{ $inventory->status === 'approved' && $inventory->condition === 'new' ? 'The record is hidden and its '.$inventory->qty.' × '.$inventory->item.' go back into stock.' : 'The record is hidden from the inventory list.' }}"
+                                              data-confirm="{{ $inventory->status === 'approved' && $inventory->condition === 'new' && ! $inventory->isReturned() ? 'The record is hidden and its '.$inventory->qty.' × '.$inventory->stock?->item.' go back into stock.' : 'The record is hidden from the inventory list.' }}"
                                               data-confirm-title="Deactivate this record?" data-confirm-button="Yes, deactivate"
                                               data-processing="Deactivating…">
                                             @csrf
@@ -138,14 +145,14 @@
         Create and edit modals. Each form carries a hidden _modal naming its
         dialog, so a failed validation reopens that same dialog with its input.
     --}}
-    <x-modal id="create-inventory" heading="Add inventory" width="max-w-3xl" icon="plus"
-             :description="$isAdmin ? 'New items are taken out of stock straight away.' : 'Your record goes to an administrator for approval; stock is taken when it is approved.'"
+    <x-modal id="create-inventory" heading="Add inventory" width="max-w-4xl" icon="plus"
+             :description="$isAdmin ? 'One record per person. New items are taken out of stock straight away.' : 'One record per person. Your records go to an administrator for approval; stock is taken when they are approved.'"
              :open="$reopen === 'create-inventory'">
         @if ($reopen === 'create-inventory')
             <x-form-errors />
         @endif
         <form id="create-inventory-form" method="POST" action="{{ route('inventory.store') }}"
-              data-processing="{{ $isAdmin ? 'Saving inventory…' : 'Submitting for approval…' }}">
+              data-processing="{{ $isAdmin ? 'Saving inventory…' : 'Submitting for approval…' }}" class="gf-modal-fields">
             @csrf
             <input type="hidden" name="_modal" value="create-inventory">
             @include('inventory._form', ['inventory' => null, 'prefix' => 'create-inventory-', 'useOld' => $reopen === 'create-inventory'])
@@ -160,13 +167,22 @@
     @foreach ($inventories as $inventory)
         @php $modalId = 'edit-inventory-'.$inventory->getKey(); @endphp
         <x-modal :id="$modalId" heading="Edit inventory" width="max-w-3xl" icon="pencil-square"
-                 :description="$isAdmin ? $inventory->item.' — '.$inventory->taken_by : 'Your changes go to an administrator for approval.'"
+                 :description="$isAdmin ? $inventory->stock?->item.' — '.$inventory->taken_by : 'Your changes go to an administrator for approval.'"
                  :open="$reopen === $modalId">
             @if ($reopen === $modalId)
                 <x-form-errors />
             @endif
+            @if ($inventory->isReturned())
+                {{-- A handover is recorded with Assign to new person, so it lands on the timeline. --}}
+                <p class="mb-6 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-700 ring-1 ring-sky-600/20">
+                    This item has been returned to stock. To hand it to someone else, use
+                    <a href="{{ route('inventory.show', $inventory) }}" class="font-semibold underline">Assign to new person</a>
+                    on its page rather than changing "Taken by" here.
+                </p>
+            @endif
             <form id="{{ $modalId }}-form" method="POST" action="{{ route('inventory.update', $inventory) }}"
-                  data-processing="{{ $isAdmin ? 'Saving changes…' : 'Submitting for approval…' }}">
+                  data-processing="{{ $isAdmin ? 'Saving changes…' : 'Submitting for approval…' }}"
+                  class="gf-modal-fields">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">
@@ -176,6 +192,8 @@
             <x-slot:footer>
                 <x-button type="submit" form="{{ $modalId }}-form">{{ $isAdmin ? 'Save changes' : 'Submit for approval' }}</x-button>
                 <x-button color="gray" data-modal-close>Cancel</x-button>
+                {{-- A download never leaves the page, so no data-processing spinner. --}}
+                <x-button color="gray" icon="arrow-down-tray" class="sm:ms-auto" :href="route('inventory.barcode', $inventory)">Download barcode</x-button>
             </x-slot:footer>
         </x-modal>
     @endforeach
