@@ -2,8 +2,11 @@
 
 use App\Http\Controllers\AuditTrailController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\HandoverController;
 use App\Http\Controllers\InventoryController;
+use App\Http\Controllers\InventoryUpdateController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ScannerController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\TypeController;
 use App\Http\Controllers\UserController;
@@ -27,9 +30,25 @@ Route::middleware('auth')->group(function () {
     Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
     Route::post('/inventory', [InventoryController::class, 'store'])->name('inventory.store');
     Route::put('/inventory/{inventory}', [InventoryController::class, 'update'])->name('inventory.update');
+    // View-only details page (where a scan lands) and the record's barcode JPEG.
+    // whereNumber keeps /inventory/pending and /inventory/download-pdf out of {inventory}.
+    Route::get('/inventory/{inventory}', [InventoryController::class, 'show'])->whereNumber('inventory')->name('inventory.show');
+    Route::get('/inventory/{inventory}/barcode', [InventoryController::class, 'barcode'])->whereNumber('inventory')->name('inventory.barcode');
+
+    // Handover: return the item to stock, then assign it to a new person.
+    Route::patch('/inventory/{inventory}/return', [HandoverController::class, 'return'])->whereNumber('inventory')->name('inventory.return');
+    Route::patch('/inventory/{inventory}/assign', [HandoverController::class, 'assign'])->whereNumber('inventory')->name('inventory.assign');
+
+    // The item's timeline: add a note; remove (deactivate) one.
+    Route::post('/inventory/{inventory}/updates', [InventoryUpdateController::class, 'store'])->whereNumber('inventory')->name('inventory.updates.store');
+    Route::delete('/inventory/{inventory}/updates/{update}', [InventoryUpdateController::class, 'destroy'])->whereNumber(['inventory', 'update'])->scopeBindings()->name('inventory.updates.destroy');
 
     Route::get('/stock', [StockController::class, 'index'])->name('stock.index');
     Route::post('/stock', [StockController::class, 'store'])->name('stock.store');
+
+    // Camera barcode scanner: decodes in the browser, then looks the code up.
+    Route::get('/scanner', [ScannerController::class, 'index'])->name('scanner.index');
+    Route::get('/scanner/lookup', [ScannerController::class, 'lookup'])->name('scanner.lookup');
 });
 
 // Admin only

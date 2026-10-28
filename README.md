@@ -20,7 +20,11 @@ Staff record each item they issue (a laptop bag, a mouse, a monitor…) against 
 ## Features
 
 - **Dashboard**: totals for in stock, given out, pending approvals and items issued this month; quantities per item, filterable by site and department; recent issues.
-- **Inventory**: issue equipment to a person (date, item, quantity, serial number, condition, department, site), edit or deactivate records, search and filter, and download a yearly PDF report.
+- **Inventory**: issue equipment to one or more people at once. Date, condition, item and site are entered once; "+ Add person" adds a row (taken by, department, serial number) per person, and each person gets their own single-unit record. Edit, view or deactivate records one at a time, search and filter, and download a yearly PDF report.
+- **Barcodes**: every inventory record gets a Code 128 barcode (e.g. `INV000123`), saved as a JPEG label. Download it from the record's edit form or details page.
+- **Handover**: on an item's page, **Return to stock** puts it back on the shelf; **Assign to new person** then records the new holder on the same record, so the barcode label stays valid. A regular user's assignment goes to Approvals.
+- **Timeline**: each item's page has a timeline of notes (e.g. "New battery fitted") and its returns and handovers. Anyone can add a note; the author or an administrator can remove it.
+- **Scanner**: hold a barcode label up to the device camera; the record's view-only details page opens. A typed-in code works too. The camera needs HTTPS (or localhost).
 - **Approvals**: issues and edits submitted by regular users wait here until an administrator approves them. Edits show each changed field as old → new.
 - **Stock**: per-item **In stock**, **Given out** and **Total**, with low-stock and out-of-stock badges. Anyone can add stock; administrators can correct a count.
 - **Settings → Users**: create, edit, deactivate and reactivate accounts. A new user is emailed a generated temporary password; the administrator never sees it.
@@ -45,7 +49,7 @@ Self-registration is turned off. Administrators create every account.
 ## How stock is counted
 
 - **In stock** is what's on the shelf now.
-- **Given out** is the total quantity of inventory records that are **active**, **approved** and in **new** condition. Used items being re-issued don't come out of stock.
+- **Given out** is the total quantity of inventory records that are **active**, **approved**, in **new** condition and **not returned**. Used items being re-issued don't come out of stock.
 - **Total** = in stock + given out.
 
 The system keeps these consistent automatically (`App\Services\StockLedger`):
@@ -176,9 +180,12 @@ The tests run against a real SQL Server database, `inventory_management_revamp_t
 2. `composer install --no-dev --optimize-autoloader`, then `npm ci && npm run build`.
 3. Set `.env`: `APP_ENV=production`, `APP_DEBUG=false`, the SQL Server connection, and the mail settings above. Also set `MAIL_VERIFY_PEER=false` unless the relay has been given a trusted certificate; without either, every email fails.
 4. `php artisan migrate --force`
-5. `php artisan optimize`
+5. `php artisan inventory:barcodes` (gives any record without a barcode one, and redraws missing label images; safe to re-run)
+6. `php artisan optimize`
 
-**First deployment of this version:** it moves the system from MariaDB to SQL Server, and the migrations are a fresh baseline rather than changes to the old tables. Create an empty SQL Server database, run `php artisan migrate --force` and `php artisan db:seed --class=TypeSeeder --force` (not the demo seeder), then import the existing users, stock and inventory from the MariaDB system. Department, site and item text becomes ids pointing at `ref.types` and `inventory.stocks`. Rehearse the import on a copy first.
+Serve the site over **HTTPS**: browsers only allow the camera on secure pages, so over plain HTTP the scanner falls back to typing the code. Barcode JPEGs live in `storage/app/private/barcodes`; include that folder in backups (they can also be regenerated with `inventory:barcodes`).
+
+**First deployment of this version:** it moves the system from MariaDB to SQL Server, and the migrations are a fresh baseline rather than changes to the old tables. Create an empty SQL Server database, run `php artisan migrate --force` and `php artisan db:seed --class=TypeSeeder --force` (not the demo seeder), then import the existing users, stock and inventory from the MariaDB system, and run `php artisan inventory:barcodes` so imported records get barcodes. Department, site and item text becomes ids pointing at `ref.types` and `inventory.stocks`. Rehearse the import on a copy first.
 
 ## Project layout
 

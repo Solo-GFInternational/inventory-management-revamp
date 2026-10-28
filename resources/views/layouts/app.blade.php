@@ -20,6 +20,8 @@
     <script>window.gfFlash = {{ \Illuminate\Support\Js::from((object) $gfFlash) }};</script>
     @fonts
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- Page-only scripts (e.g. the scanner's @vite('resources/js/scanner.js')); they run after app.js. --}}
+    @stack('scripts')
 </head>
 <body class="h-full bg-gray-50 text-gray-950 antialiased">
 <div class="min-h-full">
@@ -79,6 +81,7 @@
                 <x-nav-link :href="route('dashboard')" icon="home" :active="request()->routeIs('dashboard')">Dashboard</x-nav-link>
                 <x-nav-link :href="route('inventory.index')" icon="clipboard-document-check" :active="request()->routeIs('inventory.index')">Inventory</x-nav-link>
                 <x-nav-link :href="route('stock.index')" icon="archive-box" :active="request()->routeIs('stock.*')">Stock</x-nav-link>
+                <x-nav-link :href="route('scanner.index')" icon="viewfinder-circle" :active="request()->routeIs('scanner.*')">Scanner</x-nav-link>
                 @if (auth()->user()->isAdmin())
                     <x-nav-link :href="route('inventory.pending')" icon="clock" :active="request()->routeIs('inventory.pending')">
                         Approvals

@@ -11,9 +11,11 @@ use Illuminate\Validation\ValidationException;
  * Keeps `stocks.qty` in step with the inventory rows that have been issued.
  *
  * The invariant: stocks.qty is what is on the shelf now, and stock has been
- * deducted for exactly the inventory rows that are active, approved and in
- * 'new' condition. So for any stock item, "given out" is SUM(qty) of those rows and
- * the total is in stock + given out.
+ * deducted for exactly the inventory rows that are active, approved, in
+ * 'new' condition and not returned (returned_at is null: a returned item is
+ * back on the shelf until it is assigned to someone else). So for any stock
+ * item, "given out" is SUM(qty) of those rows and the total is in stock +
+ * given out.
  *
  * Every change to an inventory row goes through save(): it compares what the
  * row held from stock before the change with what it holds after, moves the
@@ -68,13 +70,14 @@ class StockLedger
     /**
      * What a row with these attributes has taken from stock:
      * ['stock_id', 'qty'], or null when it holds nothing (inactive, pending,
-     * or used condition).
+     * used condition, or returned to stock).
      */
     private function holding(array $attributes): ?array
     {
         $active = filter_var($attributes['active_yn'] ?? true, FILTER_VALIDATE_BOOLEAN);
 
-        if (! $active || ($attributes['status'] ?? null) !== 'approved' || ($attributes['condition'] ?? null) !== 'new') {
+        if (! $active || ($attributes['status'] ?? null) !== 'approved' || ($attributes['condition'] ?? null) !== 'new'
+            || ($attributes['returned_at'] ?? null) !== null) {
             return null;
         }
 

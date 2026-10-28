@@ -17,29 +17,34 @@ class DashboardController extends Controller
         $department = $request->integer('department_id') ?: null;
 
         // Stat cards. Deactivated rows never count; "given out" and "issued"
-        // only count approved issues (pending ones haven't left the shelf).
+        // only count approved issues still with someone (pending ones haven't
+        // left the shelf, returned ones are back on it).
         $inStock = (int) Stock::active()->sum('qty');
 
         $givenOut = (int) Inventory::active()
             ->where('status', 'approved')
             ->where('condition', 'new')
+            ->whereNull('returned_at')
             ->sum('qty');
 
         $pendingCount = Inventory::active()->where('status', 'pending')->count();
 
         $issuedThisMonth = (int) Inventory::active()
             ->where('status', 'approved')
+            ->whereNull('returned_at')
             ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
             ->sum('qty');
 
-        // Item-wise total quantity issued (approved), filterable by site and
-        // department; one row per stock item, named from inventory.stocks.
+        // Item-wise total quantity issued (approved and not returned),
+        // filterable by site and department; one row per stock item, named
+        // from inventory.stocks.
         $inventories = (new Inventory)->getTable();
         $stocks = (new Stock)->getTable();
 
         $items = Inventory::active()
             ->join($stocks, "{$stocks}.id", '=', "{$inventories}.stock_id")
             ->where("{$inventories}.status", 'approved')
+            ->whereNull("{$inventories}.returned_at")
             ->when($site, fn ($query) => $query->where("{$inventories}.site_id", $site))
             ->when($department, fn ($query) => $query->where("{$inventories}.department_id", $department))
             ->select("{$inventories}.stock_id", "{$stocks}.item", DB::raw("SUM({$inventories}.qty) as total_qty"))

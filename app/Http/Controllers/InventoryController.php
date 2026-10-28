@@ -5,25 +5,30 @@ namespace App\Http\Controllers;
 use App\Models\Inventory;
 use App\Models\Stock;
 use App\Models\Type;
+use App\Services\BarcodeLabel;
 use App\Services\StockLedger;
+use App\Support\InventoryChangeLog;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class InventoryController extends Controller
 {
-    /** The fields a user fills in; also the fields compared for an edit's change log. */
-    private const FIELDS = ['date', 'qty', 'stock_id', 'serial_number', 'condition', 'taken_by', 'department_id', 'site_id'];
-
     /**
-     * Foreign-key fields and the key they are stored under in change_log. The
-     * change log records names (item, department, site), not ids, so the
-     * approvals page shows what the user saw when they made the edit.
+     * The fields a user fills in; also the fields compared for an edit's
+     * change log. Each record is one unit, so qty isn't among them.
      */
-    private const LOG_KEYS = ['stock_id' => 'item', 'department_id' => 'department', 'site_id' => 'site'];
+    private const FIELDS = ['date', 'stock_id', 'serial_number', 'condition', 'taken_by', 'department_id', 'site_id'];
+
+    /** The fields entered once on the create form and shared by every record it adds. */
+    private const SHARED_FIELDS = ['date', 'condition', 'stock_id', 'site_id'];
+
+    /** The most people (records) one create form may add. */
+    public const MAX_PEOPLE = 50;
 
     public function __construct(private StockLedger $ledger) {}
 
@@ -40,6 +45,7 @@ class InventoryController extends Controller
             ->when($filters['taken_by'] !== '', fn ($q) => $q->where('taken_by', 'like', '%'.$filters['taken_by'].'%'))
             ->when($filters['site_id'] !== '', fn ($q) => $q->where('site_id', (int) $filters['site_id']))
             ->when(in_array($filters['status'], ['approved', 'pending'], true), fn ($q) => $q->where('status', $filters['status']))
+            ->when($filters['status'] === 'returned', fn ($q) => $q->whereNotNull('returned_at'))
             ->orderByDesc('date')
             ->orderByDesc('id')
             ->paginate(25)
@@ -56,23 +62,72 @@ class InventoryController extends Controller
         ]);
     }
 
+    /**
+     * The create form adds one single-unit record per person receiving the
+     * item, all sharing the date, condition, item and site. All are saved or
+     * none: a stock shortfall part-way through rolls the whole batch back.
+     */
     public function store(Request $request)
     {
-        $data = $this->validated($request);
+        [$shared, $people] = $this->validatedBatch($request);
         $isAdmin = $request->user()->isAdmin();
 
-        $inventory = new Inventory($data + [
-            'given_by' => $request->user()->id,
-            'status' => $isAdmin ? 'approved' : 'pending',
-            'approval_type' => $isAdmin ? null : 'new',
-        ]);
+        try {
+            DB::transaction(function () use ($shared, $people, $isAdmin, $request) {
+                foreach ($people as $person) {
+                    $inventory = new Inventory($shared + $person + [
+                        'qty' => 1,
+                        'given_by' => $request->user()->id,
+                        'status' => $isAdmin ? 'approved' : 'pending',
+                        'approval_type' => $isAdmin ? null : 'new',
+                    ]);
 
-        // Approved rows take their stock now; pending ones on approval.
-        $this->ledger->save($inventory);
+                    // Approved rows take their stock now; pending ones on approval.
+                    // The barcode is assigned as the row is created (Inventory::booted).
+                    $this->ledger->save($inventory);
+                }
+            });
+        } catch (ValidationException $e) {
+            // Stock taken by someone else since the check above: shown like it.
+            throw ValidationException::withMessages(['people' => $e->validator->errors()->first('qty')]);
+        }
+
+        $count = count($people);
+        $records = $count === 1 ? '1 inventory record' : "{$count} inventory records";
 
         return redirect()->route('inventory.index')->with('status', $isAdmin
-            ? 'Inventory added and stock updated.'
-            : 'Inventory submitted for approval. Stock is deducted once an administrator approves it.');
+            ? "{$records} added and stock updated."
+            : "{$records} submitted for approval. Stock is deducted once an administrator approves them.");
+    }
+
+    /** A record's details, read-only. Where a scanned barcode leads; deactivated records are still shown. */
+    public function show(Inventory $inventory)
+    {
+        $inventory->load(['giver', 'stock', 'department', 'site', 'creator',
+            // The Timeline card, newest first (id breaks ties within a second).
+            'updates' => fn ($query) => $query->active()->with('author')->latest()->latest('id'),
+        ]);
+
+        return view('inventory.show', compact('inventory'));
+    }
+
+    /**
+     * The record's barcode label JPEG: a download, or with ?inline=1 shown in
+     * the page. A label file that has gone missing is generated again.
+     */
+    public function barcode(Request $request, Inventory $inventory, BarcodeLabel $labels)
+    {
+        // Only a row created before barcodes existed and not yet backfilled has none.
+        $inventory->assignBarcode();
+        $labels->ensure($inventory);
+
+        $disk = Storage::disk('local');
+        $headers = ['Content-Type' => 'image/jpeg'];
+        $filename = $inventory->barcode.'.jpg';
+
+        return $request->boolean('inline')
+            ? $disk->response($inventory->barcodePath(), $filename, $headers)
+            : $disk->download($inventory->barcodePath(), $filename, $headers);
     }
 
     public function update(Request $request, Inventory $inventory)
@@ -84,18 +139,7 @@ class InventoryController extends Controller
         $before = $inventory->only(self::FIELDS);
         $inventory->fill($data);
 
-        $changes = [];
-        foreach (self::FIELDS as $field) {
-            $old = $this->normalise($field, $before[$field]);
-            $new = $this->normalise($field, $inventory->$field);
-
-            if ($old !== $new) {
-                $changes[self::LOG_KEYS[$field] ?? $field] = [
-                    'old' => $this->displayValue($field, $old),
-                    'new' => $this->displayValue($field, $new),
-                ];
-            }
-        }
+        $changes = InventoryChangeLog::diff(self::FIELDS, $before, $inventory->only(self::FIELDS));
 
         if (! $changes) {
             return redirect()->route('inventory.index')->with('status', 'No changes to save.');
@@ -108,7 +152,7 @@ class InventoryController extends Controller
             // new row stays a "new" approval; otherwise it becomes an "edit"
             // approval, keeping the original value of each changed field.
             if ($inventory->approval_type !== 'new') {
-                $inventory->change_log = $this->mergeChangeLog($inventory->change_log ?? [], $changes);
+                $inventory->change_log = InventoryChangeLog::merge($inventory->change_log ?? [], $changes);
                 $inventory->approval_type = 'edit';
             }
             $inventory->status = 'pending';
@@ -197,51 +241,134 @@ class InventoryController extends Controller
     }
 
     /**
-     * Validate the create/edit form, including that a new-condition item
-     * doesn't ask for more than is on the shelf. Items, departments and sites
-     * must be active, except that a row being edited may keep the one it has.
+     * Validate the create form: the shared fields once, then one entry per
+     * person (taken by, department, serial number). For a new-condition item,
+     * there must be one in stock for each person.
+     *
+     * @return array{0: array, 1: list<array>} the shared fields, and each person's fields
      */
-    private function validated(Request $request, ?Inventory $inventory = null): array
+    private function validatedBatch(Request $request): array
     {
         $data = $request->validate([
+            ...$this->sharedRules(),
+            'people' => ['required', 'array', 'min:1', 'max:'.self::MAX_PEOPLE],
+            ...$this->personRules('people.*.'),
+        ], [
+            ...$this->messages(),
+            'people.required' => 'Add at least one person receiving the item.',
+            'people.max' => 'No more than '.self::MAX_PEOPLE.' people can be added at once.',
+            'people.*.department_id.exists' => 'The department chosen for person :position is no longer available.',
+        ], [
+            ...$this->attributes(),
+            'people.*.taken_by' => 'taken by (person :position)',
+            'people.*.department_id' => 'department (person :position)',
+            'people.*.serial_number' => 'serial number (person :position)',
+        ]);
+
+        $shared = $this->castIds(array_intersect_key($data, array_flip(self::SHARED_FIELDS)));
+
+        $people = array_map(fn (array $person) => $this->castIds([
+            'taken_by' => $person['taken_by'],
+            'department_id' => $person['department_id'],
+            'serial_number' => $person['serial_number'] ?? null,
+        ]), array_values($data['people']));
+
+        if ($shared['condition'] === 'new') {
+            $this->ensureInStock($shared['stock_id'], count($people), null, 'people');
+        }
+
+        return [$shared, $people];
+    }
+
+    /**
+     * Validate the edit form, including that a new-condition item is still
+     * on the shelf. The record keeps its quantity (one unit).
+     */
+    private function validated(Request $request, Inventory $inventory): array
+    {
+        $data = $this->castIds($request->validate(
+            [...$this->sharedRules($inventory), ...$this->personRules('', $inventory)],
+            $this->messages(),
+            $this->attributes(),
+        ));
+
+        if ($data['condition'] === 'new') {
+            $this->ensureInStock($data['stock_id'], (int) $inventory->qty, $inventory, 'stock_id');
+        }
+
+        return $data;
+    }
+
+    /**
+     * Rules for the fields shared by every record on the create form. Items
+     * and sites must be active, except that a row being edited may keep the
+     * one it has.
+     */
+    private function sharedRules(?Inventory $inventory = null): array
+    {
+        return [
             'date' => ['required', 'date'],
+            'condition' => ['required', Rule::in(['new', 'used'])],
             'stock_id' => ['required', 'integer',
                 Rule::exists(Stock::class, 'id')->where($this->activeOr($inventory?->stock_id))],
-            'qty' => ['required', 'integer', 'min:1'],
-            'serial_number' => ['nullable', 'string', 'max:255'],
-            'condition' => ['required', Rule::in(['new', 'used'])],
-            'taken_by' => ['required', 'string', 'max:255'],
-            'department_id' => ['required', 'integer',
-                Rule::exists(Type::class, 'id')->where('type_group', Type::DEPARTMENT)->where($this->activeOr($inventory?->department_id))],
             'site_id' => ['required', 'integer',
                 Rule::exists(Type::class, 'id')->where('type_group', Type::SITE)->where($this->activeOr($inventory?->site_id))],
-        ], [
+        ];
+    }
+
+    /** Rules for one person's fields, under a key prefix ('people.*.' on the create form). */
+    private function personRules(string $prefix, ?Inventory $inventory = null): array
+    {
+        return [
+            $prefix.'taken_by' => ['required', 'string', 'max:255'],
+            $prefix.'department_id' => ['required', 'integer',
+                Rule::exists(Type::class, 'id')->where('type_group', Type::DEPARTMENT)->where($this->activeOr($inventory?->department_id))],
+            $prefix.'serial_number' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+
+    private function messages(): array
+    {
+        return [
             'stock_id.exists' => 'The chosen item is no longer in the stock list.',
             'department_id.exists' => 'The chosen department is no longer available.',
             'site_id.exists' => 'The chosen site is no longer available.',
-        ], [
+        ];
+    }
+
+    private function attributes(): array
+    {
+        return [
             'stock_id' => 'item',
             'department_id' => 'department',
             'site_id' => 'site',
-        ]);
+        ];
+    }
 
-        foreach (['qty', 'stock_id', 'department_id', 'site_id'] as $field) {
-            $data[$field] = (int) $data[$field];
-        }
-
-        if ($data['condition'] === 'new') {
-            $available = $this->ledger->available($data['stock_id'], $inventory);
-
-            if ($data['qty'] > $available) {
-                $item = (string) Stock::whereKey($data['stock_id'])->value('item');
-
-                throw ValidationException::withMessages([
-                    'qty' => $this->ledger->shortfallMessage($item, $available, $data['qty']),
-                ]);
+    /** Foreign keys arrive as strings; store and compare them as integers. */
+    private function castIds(array $data): array
+    {
+        foreach (['stock_id', 'department_id', 'site_id'] as $field) {
+            if (isset($data[$field])) {
+                $data[$field] = (int) $data[$field];
             }
         }
 
         return $data;
+    }
+
+    /** Refuse a request for more of an item than is on the shelf (plus what the row already holds). */
+    private function ensureInStock(int $stockId, int $requested, ?Inventory $inventory, string $errorKey): void
+    {
+        $available = $this->ledger->available($stockId, $inventory);
+
+        if ($requested > $available) {
+            $item = (string) Stock::whereKey($stockId)->value('item');
+
+            throw ValidationException::withMessages([
+                $errorKey => $this->ledger->shortfallMessage($item, $available, $requested),
+            ]);
+        }
     }
 
     /** An exists-rule condition: the row is active, or is the one the record already holds. */
@@ -249,50 +376,5 @@ class InventoryController extends Controller
     {
         return fn ($query) => $query->where('active_yn', true)
             ->when($keepId, fn ($query) => $query->orWhere('id', $keepId));
-    }
-
-    /** The name a foreign-key value is shown and logged as (other fields as they are). */
-    private function displayValue(string $field, ?string $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $name = match ($field) {
-            'stock_id' => Stock::whereKey($value)->value('item'),
-            'department_id', 'site_id' => Type::whereKey($value)->value('type_name'),
-            default => $value,
-        };
-
-        return $name ?? $value;
-    }
-
-    /** Compare and log values as plain strings (dates as Y-m-d, blanks as null). */
-    private function normalise(string $field, mixed $value): ?string
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        if ($field === 'date') {
-            return substr((string) $value, 0, 10);
-        }
-
-        return (string) $value;
-    }
-
-    /** Fold a new diff into an existing one, keeping each field's original value. */
-    private function mergeChangeLog(array $existing, array $changes): array
-    {
-        foreach ($changes as $field => $change) {
-            $old = array_key_exists($field, $existing) ? $existing[$field]['old'] : $change['old'];
-            $existing[$field] = ['old' => $old, 'new' => $change['new']];
-
-            if ($old === $change['new']) {
-                unset($existing[$field]);
-            }
-        }
-
-        return $existing;
     }
 }

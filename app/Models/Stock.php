@@ -28,8 +28,9 @@ class Stock extends Model
 
     /**
      * Adds a `given_out` column: the quantity of this item issued as new
-     * (active, approved inventory rows with condition "new"), from one
-     * grouped subquery rather than a query per row.
+     * (active, approved inventory rows with condition "new" that haven't
+     * been returned to stock), from one grouped subquery rather than a
+     * query per row.
      */
     public function scopeWithGivenOut(Builder $query): Builder
     {
@@ -38,6 +39,7 @@ class Stock extends Model
             ->selectRaw('SUM(qty) as given_out')
             ->where('status', 'approved')
             ->where('condition', 'new')
+            ->whereNull('returned_at')
             ->groupBy('stock_id');
 
         return $query
