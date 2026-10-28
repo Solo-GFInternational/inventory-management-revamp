@@ -37,25 +37,27 @@
     {{-- The live camera view. resources/js/scanner.js starts the camera when this opens and stops it when it closes. --}}
     <x-modal id="scanner-modal" heading="Scan barcode" icon="camera"
              description="Line the barcode up inside the box." data-lookup-url="{{ route('scanner.lookup') }}">
-        <div class="relative aspect-video overflow-hidden rounded-lg bg-gray-950">
-            <video data-scanner-video class="size-full object-cover" playsinline muted></video>
+        <div class="gf-modal-fields">
+            <div class="relative aspect-video overflow-hidden rounded-lg bg-gray-950">
+                <video data-scanner-video class="size-full object-cover" playsinline muted></video>
 
-            {{-- Guide box, wide and short to suit a 1D barcode, with a scan line across the middle. --}}
-            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div class="relative h-1/3 w-4/5 rounded-lg border-2 border-white/90 shadow-[0_0_0_9999px_rgb(3_7_18/0.45)]">
-                    <div class="absolute inset-x-3 top-1/2 h-0.5 -translate-y-1/2 bg-danger-500/80"></div>
+                {{-- Guide box, wide and short to suit a 1D barcode, with a scan line across the middle. --}}
+                <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div class="relative h-1/3 w-4/5 rounded-lg border-2 border-white/90 shadow-[0_0_0_9999px_rgb(3_7_18/0.45)]">
+                        <div class="absolute inset-x-3 top-1/2 h-0.5 -translate-y-1/2 bg-danger-500/80"></div>
+                    </div>
                 </div>
+
+                <p data-scanner-status class="absolute inset-x-0 bottom-0 bg-gray-950/60 px-3 py-1.5 text-center text-xs text-white">
+                    Starting the camera…
+                </p>
             </div>
 
-            <p data-scanner-status class="absolute inset-x-0 bottom-0 bg-gray-950/60 px-3 py-1.5 text-center text-xs text-white">
-                Starting the camera…
-            </p>
-        </div>
-
-        {{-- Shown by scanner.js only when there's more than one camera. --}}
-        <div data-scanner-camera-field class="mt-4" hidden>
-            <label for="scanner-camera" class="gf-label">Camera</label>
-            <select id="scanner-camera" data-scanner-camera class="gf-input select-arrow"></select>
+            {{-- Shown by scanner.js only when there's more than one camera. --}}
+            <div data-scanner-camera-field class="mt-4" hidden>
+                <label for="scanner-camera" class="gf-label">Camera</label>
+                <select id="scanner-camera" data-scanner-camera class="gf-input select-arrow"></select>
+            </div>
         </div>
 
         <x-slot:footer>

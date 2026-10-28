@@ -1,5 +1,4 @@
 @extends('layouts.app')
-@section('alerts', 'tallstackui') {{-- TallStackUI dialogs and toasts instead of SweetAlert (trial) --}}
 @section('title', 'Inventory and Stock')
 
 @section('content')
@@ -99,7 +98,7 @@
         @if ($reopen === 'add-stock')
             <x-form-errors />
         @endif
-        <form id="add-stock-form" method="POST" action="{{ route('stock.store') }}" class="space-y-5"
+        <form id="add-stock-form" method="POST" action="{{ route('stock.store') }}" class="gf-modal-fields space-y-5"
               data-processing="Adding stock…">
             @csrf
             <input type="hidden" name="_modal" value="add-stock">
@@ -143,7 +142,7 @@
                 @if ($reopen === $modalId)
                     <x-form-errors />
                 @endif
-                <form id="{{ $modalId }}-form" method="POST" action="{{ route('stock.update', $stock) }}" class="space-y-5"
+                <form id="{{ $modalId }}-form" method="POST" action="{{ route('stock.update', $stock) }}" class="gf-modal-fields space-y-5"
                       data-processing="Saving the stock count…">
                     @csrf
                     @method('PUT')

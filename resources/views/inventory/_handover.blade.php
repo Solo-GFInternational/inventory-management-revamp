@@ -24,7 +24,7 @@
         <form id="return-inventory-form" method="POST" action="{{ route('inventory.return', $inventory) }}"
               data-confirm="{{ $inventory->condition === 'new' ? 'The '.$inventory->stock?->item.' goes back into stock.' : 'The item is marked as returned.' }}"
               data-confirm-title="Return this item to stock?" data-confirm-button="Yes, return it"
-              data-processing="Returning…">
+              data-processing="Returning…" class="gf-modal-fields">
             @csrf
             @method('PATCH')
             <input type="hidden" name="_modal" value="return-inventory">
@@ -57,7 +57,7 @@
             <x-form-errors />
         @endif
         <form id="assign-inventory-form" method="POST" action="{{ route('inventory.assign', $inventory) }}"
-              data-processing="{{ $isAdmin ? 'Assigning…' : 'Submitting for approval…' }}">
+              data-processing="{{ $isAdmin ? 'Assigning…' : 'Submitting for approval…' }}" class="gf-modal-fields">
             @csrf
             @method('PATCH')
             <input type="hidden" name="_modal" value="assign-inventory">

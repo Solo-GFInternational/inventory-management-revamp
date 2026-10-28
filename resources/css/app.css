@@ -82,6 +82,10 @@ select.select-arrow::-ms-expand {
  *                       (site-visit's View visit request page)
  *   .gf-table           a table inside an <x-card>: gray header row,
  *                       divided rows, Filament's cell padding
+ *   .gf-modal-fields    the form fields in an <x-modal>: a line across the
+ *                       modal's full width above and below them, with
+ *                       space before the buttons. Notes and errors sit
+ *                       above the top line.
  */
 @layer components {
     .gf-label {
@@ -98,6 +102,10 @@ select.select-arrow::-ms-expand {
 
     .gf-readonly-field {
         @apply flex min-h-10 w-full items-center rounded-lg border border-gray-300 bg-gray-50 px-3 py-[0.4375rem] text-sm leading-normal text-gray-950;
+    }
+
+    .gf-modal-fields {
+        @apply -mx-6 mb-2 border-y border-gray-200 px-6 py-6;
     }
 
     .gf-table {

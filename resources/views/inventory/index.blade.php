@@ -1,5 +1,4 @@
 @extends('layouts.app')
-@section('alerts', 'tallstackui') {{-- TallStackUI dialogs and toasts instead of SweetAlert (trial) --}}
 @section('title', 'Inventory and Stock')
 
 @section('content')
@@ -153,7 +152,7 @@
             <x-form-errors />
         @endif
         <form id="create-inventory-form" method="POST" action="{{ route('inventory.store') }}"
-              data-processing="{{ $isAdmin ? 'Saving inventory…' : 'Submitting for approval…' }}">
+              data-processing="{{ $isAdmin ? 'Saving inventory…' : 'Submitting for approval…' }}" class="gf-modal-fields">
             @csrf
             <input type="hidden" name="_modal" value="create-inventory">
             @include('inventory._form', ['inventory' => null, 'prefix' => 'create-inventory-', 'useOld' => $reopen === 'create-inventory'])
@@ -182,7 +181,8 @@
                 </p>
             @endif
             <form id="{{ $modalId }}-form" method="POST" action="{{ route('inventory.update', $inventory) }}"
-                  data-processing="{{ $isAdmin ? 'Saving changes…' : 'Submitting for approval…' }}">
+                  data-processing="{{ $isAdmin ? 'Saving changes…' : 'Submitting for approval…' }}"
+                  class="gf-modal-fields">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">

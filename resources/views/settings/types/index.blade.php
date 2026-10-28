@@ -112,7 +112,7 @@
         @if ($reopen === 'create-type')
             <x-form-errors />
         @endif
-        <form id="create-type-form" method="POST" action="{{ route('types.store') }}" data-processing="Saving the type…">
+        <form id="create-type-form" method="POST" action="{{ route('types.store') }}" data-processing="Saving the type…" class="gf-modal-fields">
             @csrf
             <input type="hidden" name="_modal" value="create-type">
             @include('settings.types._form', ['type' => null, 'prefix' => 'create-type-', 'useOld' => $reopen === 'create-type', 'defaultGroup' => $group ?: null])
@@ -131,7 +131,7 @@
             @if ($reopen === $modalId)
                 <x-form-errors />
             @endif
-            <form id="{{ $modalId }}-form" method="POST" action="{{ route('types.update', $type) }}" data-processing="Saving changes…">
+            <form id="{{ $modalId }}-form" method="POST" action="{{ route('types.update', $type) }}" data-processing="Saving changes…" class="gf-modal-fields">
                 @csrf
                 @method('PUT')
                 <input type="hidden" name="_modal" value="{{ $modalId }}">
